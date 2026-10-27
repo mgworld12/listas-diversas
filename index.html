@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Listas Diversas</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4f46e5">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<main class="app">
+  <h1>LISTAS DIVERSAS</h1>
+
+  <form id="itemForm" class="panel">
+    <div class="field">
+      <label for="itemCode">Código de barras / QR Code:</label>
+      <div class="coderow">
+        <input type="text" id="itemCode" maxlength="120" placeholder="Digite ou leia com a câmera">
+        <button type="button" id="scanBtn" class="btn">📷 Ler</button>
+      </div>
+      <p id="codeMsg" class="empty"></p>
+    </div>
+    <div class="field">
+      <label for="itemName" class="big">Item:</label>
+      <input type="text" id="itemName" class="big" maxlength="80" placeholder="Ex.: Ibuprofeno, Arroz, Caneta" required>
+    </div>
+    <div class="row">
+      <div class="field grow">
+        <label for="itemSector">Setor:</label>
+        <select id="itemSector" required></select>
+      </div>
+      <div class="field qty">
+        <label for="itemQty">Medida:</label>
+        <input type="number" id="itemQty" min="0" max="99999" step="any" inputmode="decimal" placeholder="Ex.: 10">
+      </div>
+      <div class="field grow">
+        <label for="itemUnit">Unidade:</label>
+        <div class="unitrow"><select id="itemUnit"></select><button type="button" id="delUnit" class="btn" title="Excluir a unidade selecionada">🗑️</button></div>
+      </div>
+      <div class="field grow">
+        <label for="itemContent">Conteúdo:</label>
+        <input type="text" id="itemContent" maxlength="40" placeholder="Ex.: 30 comprimidos">
+      </div>
+      <div class="field grow colorfield">
+        <label for="colorBtn">Cor:</label>
+        <button type="button" id="colorBtn" class="colorbtn" aria-haspopup="listbox" aria-expanded="false"><span id="colorDot" class="dot"></span><span>▾</span></button>
+        <div id="colorList" class="colorlist" role="listbox" aria-label="Cores" hidden></div>
+      </div>
+    </div>
+    <div class="field">
+      <label for="itemNotes">Observações:</label>
+      <textarea id="itemNotes" rows="4" maxlength="500" placeholder="Marca, tamanho, onde comprar..."></textarea>
+    </div>
+    <div class="field">
+      <label for="imgBtn">Imagem do produto:</label>
+      <div class="imgrow">
+        <img id="imgPrev" class="thumb" alt="" hidden>
+        <button type="button" id="imgBtn" class="btn">🖼️ Escolher imagem / tirar foto</button>
+        <button type="button" id="imgDel" class="btn" hidden>Remover</button>
+        <input type="file" id="imgFile" accept="image/*" hidden>
+      </div>
+    </div>
+    <div class="row">
+      <button type="submit" id="submitBtn" class="btn primary">Adicionar item</button>
+      <button type="button" id="cancelEdit" class="btn" hidden>Cancelar edição</button>
+    </div>
+  </form>
+
+  <form id="searchForm" class="toolbar">
+    <input type="search" id="q" placeholder="Buscar item" aria-label="Buscar item">
+    <button type="submit" class="btn">Buscar</button>
+    <button type="button" id="listMode" class="btn" aria-pressed="false">Criar lista</button>
+    <button type="button" id="clearDone" class="btn">Remover concluídos</button>
+    <button type="button" id="nfBtn" class="btn">🧾 Cadastrar NF</button>
+    <button type="button" id="billBtn" class="btn">💡 Cadastrar conta</button>
+  </form>
+
+  <div id="results" class="panel" hidden></div>
+
+  <section id="listPanel" class="panel" hidden>
+    <h2>Minha lista</h2>
+    <p id="listDate" class="printonly"></p>
+    <div id="listBody"></div>
+    <p id="listTotal" class="total"></p>
+    <div class="row noprint">
+      <button type="button" id="clearList" class="btn">Limpar lista</button>
+      <button type="button" id="saveList" class="btn">Salvar lista</button>
+      <button type="button" id="xlsxBtn" class="btn primary">Salvar .xlsx</button>
+      <button type="button" id="printBtn" class="btn primary">Imprimir</button>
+    </div>
+  </section>
+
+  <section id="docsPanel" class="panel" hidden></section>
+
+  <section id="savedPanel" class="panel" hidden></section>
+
+  <div id="sectors" class="sectors"></div>
+
+  <section id="syncPanel" class="panel noprint">
+    <h2>Celular e computador</h2>
+    <div class="row">
+      <button type="button" id="loteBtn" class="btn primary">Exportar alterações</button>
+      <button type="button" id="shareBtn" class="btn" hidden>Compartilhar</button>
+      <button type="button" id="mergeBtn" class="btn">Juntar arquivo</button>
+      <button type="button" id="dirBtn" class="btn" hidden>Abrir pasta do HD</button>
+      <input type="file" id="mergeFile" accept="application/json,.json" hidden>
+    </div>
+    <p id="sync" class="empty"></p>
+  </section>
+
+  <footer class="backup noprint">
+    <button type="button" id="backupBtn" class="btn">Salvar backup</button>
+    <button type="button" id="restoreBtn" class="btn">Restaurar backup</button>
+    <input type="file" id="restoreFile" accept="application/json" hidden>
+  </footer>
+  <p id="ver" class="empty noprint" style="text-align:center">carregando…</p>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <h3 id="dlgTitle"></h3>
+    <input type="text" id="dlgName" maxlength="30" required>
+    <div id="dlgIcons" class="icons" hidden></div>
+    <label id="dlgColorLabel" hidden>Cor: <input type="color" id="dlgColor" value="#4f46e5"></label>
+    <menu>
+      <button value="ok" class="btn primary">Salvar</button>
+      <button value="cancel" class="btn" formnovalidate>Cancelar</button>
+    </menu>
+  </form>
+</dialog>
+<dialog id="docDlg" class="doc">
+  <form method="dialog">
+    <h3 id="docTitle"></h3>
+    <label for="docCode">Código (QR Code ou barras):</label>
+    <div class="coderow"><input type="text" id="docCode" placeholder="Leia com a câmera ou digite"><button type="button" id="docScan" class="btn">📷 Ler</button></div>
+    <p id="docMsg" class="empty"></p>
+    <label for="docStore" id="docStoreL">Loja:</label>
+    <input type="text" id="docStore" maxlength="80">
+    <div id="docCnpjWrap"><label for="docCnpj">CNPJ:</label><input type="text" id="docCnpj" maxlength="18" inputmode="numeric"></div>
+    <div class="row">
+      <div class="field grow"><label for="docDate">Dia:</label><input type="date" id="docDate" required></div>
+      <div class="field grow"><label for="docValue">Valor (R$):</label><input type="number" id="docValue" min="0" step="0.01" inputmode="decimal"></div>
+    </div>
+    <label for="docDesc">Descrição:</label>
+    <input type="text" id="docDesc" maxlength="80" placeholder="Ex.: Conta de luz">
+    <menu><button value="ok" class="btn primary">Salvar</button><button value="cancel" class="btn" formnovalidate>Cancelar</button></menu>
+  </form>
+</dialog>
+<script>
+// Mostra na tela qualquer erro de carregamento (útil quando o F12 não está à mão)
+(function () {
+  var show = function (m) {
+    var b = document.getElementById('errbox');
+    if (!b) { b = document.createElement('div'); b.id = 'errbox'; b.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99;background:#b91c1c;color:#fff;padding:10px;font:13px monospace;white-space:pre-wrap'; document.body.append(b); }
+    b.textContent += m + '\n';
+  };
+  window.addEventListener('error', function (e) {
+    show(e.target && e.target.tagName === 'SCRIPT' ? 'Não carregou: ' + e.target.src : 'Erro: ' + e.message + ' (' + String(e.filename || '').split('/').slice(-2).join('/') + ':' + e.lineno + ')');
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) { show('Erro: ' + (e.reason && e.reason.message || e.reason)); });
+})();
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
