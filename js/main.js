@@ -169,7 +169,7 @@ async function readDoc(text) {
     const r = parseNF(text);
     if (!r) return dmsg('Não encontrei a chave de acesso (44 dígitos) neste código.');
     if (st.docs.some(d => d.key === r.key)) return dmsg('Esta nota já foi cadastrada.');
-    docKey = r.key; docLink = r.link; $('docCnpj').value = cnpjFmt(r.cnpj);
+    docKey = r.key; docLink = r.link; $('docCnpj').value = maskCnpj(r.cnpj);
     if (r.date) $('docDate').value = r.date; if (r.value) $('docValue').value = r.value;
     dmsg('Nota lida. Buscando a loja pelo CNPJ...');
     try {
@@ -187,6 +187,22 @@ async function readDoc(text) {
 }
 $('nfBtn').onclick = () => openDoc('nf');
 $('billBtn').onclick = () => openDoc('conta');
+// CNPJ digitado: máscara 00.000.000/0000-00 e, ao completar os 14 dígitos, busca o nome da loja na internet
+const maskCnpj = v => String(v).replace(/\D/g, '').slice(0, 14)
+  .replace(/^(\d{2})(\d)/, '$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3').replace(/\.(\d{3})(\d)/, '.$1/$2').replace(/(\d{4})(\d)/, '$1-$2');
+let autoStore = '';   // último nome preenchido pela busca (pode ser trocado se o CNPJ mudar; um nome digitado por você nunca é trocado)
+$('docCnpj').oninput = async e => {
+  e.target.value = maskCnpj(e.target.value);
+  const d = e.target.value.replace(/\D/g, ''), cur = () => $('docStore').value.trim();
+  if (d.length !== 14 || (cur() && cur() !== autoStore)) return;
+  dmsg('Buscando a loja pelo CNPJ...');
+  try {
+    const n = await lookupCnpj(d);
+    if ($('docCnpj').value.replace(/\D/g, '') !== d || (cur() && cur() !== autoStore)) return;
+    if (n) { $('docStore').value = autoStore = n; dmsg('Loja encontrada pelo CNPJ. Confira o nome.'); }
+    else dmsg('CNPJ não encontrado. Digite o nome da loja.');
+  } catch { dmsg('Sem conexão para buscar o CNPJ. Digite o nome da loja.'); }
+};
 $('docScan').onclick = async () => { const c = await scanCode(); if (c) readDoc(c); };
 $('docCode').onchange = e => readDoc(e.target.value);
 $('docCode').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); readDoc(e.target.value); } };
