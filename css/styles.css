@@ -95,3 +95,18 @@ button.dot{padding:0;cursor:pointer}
 .buy{display:flex;gap:4px}.buy input{width:55%}.buy select{width:45%;padding:10px 4px}
 
 #syncPanel{margin-top:24px}#syncPanel .row .btn.primary{flex:0 1 auto}
+
+/* Botões redondos de cadastro e janela única de cadastro */
+.bigbtns{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin:0 0 20px}
+.rbtn{width:clamp(92px,28vw,128px);aspect-ratio:1;border-radius:50%;border:2px solid var(--primary);background:var(--card);color:var(--text);font:inherit;font-weight:700;font-size:.85rem;line-height:1.2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:8px;cursor:pointer;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.rbtn span{font-size:1.8rem}
+.rbtn:hover{background:var(--primary);color:#fff}
+dialog.reg{max-width:560px;max-height:92vh;overflow:auto}
+.reg label{display:block;margin:10px 0 4px}
+.reg .row label{margin-top:0}
+.choice{display:flex;flex-direction:column;gap:10px;margin:14px 0}
+.choice .btn{padding:14px}
+.imgrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.rrow details.items{flex-basis:100%}
+details.items summary{cursor:pointer;font-weight:600;color:var(--muted)}
+[hidden]{display:none!important}
