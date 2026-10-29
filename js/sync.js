@@ -1,8 +1,8 @@
 // Levar os dados entre celular e computador (arquivo de lote) e gravar na pasta do HD (só no computador)
-import { fix, save, afterSave, kvGet, kvSet, ts, uid } from './storage.js';
+import { fix, save, afterSave, kvGet, kvSet, ts, uid, exportJSON } from './storage.js';
 const $ = id => document.getElementById(id);
 export const hasDir = 'showDirectoryPicker' in window && !/Android|iPhone|iPad/i.test(navigator.userAgent);
-let getSt, onChange, dir = null, wait = null, err = '', timer = 0, bakDone = false;
+let getSt, onChange, dir = null, wait = null, err = '', timer = 0, bakDone = false, replacing = false;
 
 // ---------- Juntar os dados de outro arquivo aos atuais ----------
 // Regra: vale a alteração mais recente; o que foi excluído (e não alterado depois) continua excluído.
@@ -28,11 +28,11 @@ export function merge(st, inc) {
   Object.assign(st.codes, { ...(inc.codes || {}), ...st.codes });
   fix(st); return n;
 }
-export async function mergeFile(file) {
-  const d = JSON.parse(await file.text());
+export function mergeData(d) {
   if (!Array.isArray(d.items) || !Array.isArray(d.sectors)) throw new Error('Arquivo inválido');
   const st = getSt(), n = merge(st, d); save(st); onChange(); return n;
 }
+export async function mergeFile(file) { return mergeData(JSON.parse(await file.text())); }
 
 // ---------- Arquivo de lote: só o que mudou desde a última exportação ----------
 function build(st) {
@@ -63,29 +63,66 @@ export async function exportLote(share) {
 // ---------- Pasta do HD (computador) ----------
 const perm = async (h, ask) => { const o = { mode: 'readwrite' }; return (await h.queryPermission(o)) === 'granted' || (ask && (await h.requestPermission(o)) === 'granted'); };
 const put = async (name, text) => { const w = await (await dir.getFileHandle(name, { create: true })).createWritable(); await w.write(text); await w.close(); };
-async function readFile(h) {
-  let f; try { f = await (await h.getFileHandle('casa.json')).getFile(); } catch (e) { if (e.name === 'NotFoundError') return null; throw e; }
-  const d = JSON.parse(await f.text());
+async function readRaw(h) {
+  try { return await (await (await h.getFileHandle('casa.json')).getFile()).text(); }
+  catch (e) { if (e.name === 'NotFoundError') return null; throw e; }
+}
+const parse = raw => {
+  const d = JSON.parse(raw);
   if (!Array.isArray(d.items) || !Array.isArray(d.sectors)) throw new Error('casa.json inválido');
   return d;
-}
+};
+const bad = e => e.name === 'SyntaxError' || e.message === 'casa.json inválido';
+async function readFile(h) { const raw = await readRaw(h); return raw && parse(raw); }
 async function attach(h) {
   for await (const _ of h.values()) break;   // falha se o HD não estiver conectado
   const st = getSt(), data = await readFile(h);
   if (data) merge(st, data);
-  dir = h; wait = null; err = ''; bakDone = false;
+  dir = h; wait = null; err = ''; bakDone = false; replacing = false;
   await kvSet('dir', h); save(st); onChange();
 }
 async function push() {
   if (!dir) return;
   try {
-    if (!bakDone) {   // antes da 1ª gravação, guarda uma cópia do casa.json anterior
-      try { const f = await (await dir.getFileHandle('casa.json')).getFile(); await put('casa.bak.json', await f.text()); bakDone = true; }
-      catch (e) { if (e.name === 'NotFoundError') bakDone = true; else throw e; }
-    }
-    await put('casa.json', JSON.stringify(getSt())); err = '';
-  } catch { err = 'Não consegui gravar na pasta do HD (ele está conectado?). Os dados continuam salvos neste navegador.'; }
+    const st = getSt(), raw = await readRaw(dir);
+    if (raw) {
+      if (!bakDone) { await put('casa.bak.json', raw); bakDone = true; }   // 1ª gravação da sessão: guarda o casa.json que estava no HD
+      if (!replacing) {   // lê antes de gravar: junta o que outro navegador/aparelho já tenha gravado, para nunca apagar nada
+        const n = merge(st, parse(raw));
+        await kvSet('state', st);
+        if (n.add || n.upd || n.del) onChange();
+      }
+    } else bakDone = true;
+    replacing = false;
+    await put('casa.json', JSON.stringify(st)); err = '';
+  } catch (e) {
+    err = bad(e) ? 'O casa.json da pasta do HD está ilegível; não o sobrescrevi. A cópia casa.bak.json guarda a versão anterior.'
+      : 'Não consegui gravar na pasta do HD (ele está conectado?). Os dados continuam salvos neste navegador.';
+  }
   status();
+}
+
+// ---------- Backup e restauração ----------
+// Com a pasta do HD conectada, grava direto em casa.json (mesmo nome sempre); sem ela, baixa um arquivo com data e hora no nome.
+export async function saveBackup() {
+  if (dir) {
+    clearTimeout(timer); await push();
+    return alert(err ? '⚠️ ' + err : 'Backup gravado na pasta do HD: casa.json. A versão que estava lá ao abrir o site fica em casa.bak.json.');
+  }
+  const name = exportJSON(getSt());
+  alert(`Backup salvo em ${name} (pasta Downloads).` + (hasDir ? ' Conecte a pasta do HD para gravar direto nela, sempre com o mesmo nome.' : ''));
+}
+// Lê o casa.json da pasta do HD (para restaurar ou juntar)
+export async function readDirBackup() {
+  if (!dir) { alert('Conecte a pasta do HD primeiro.'); return null; }
+  try { const d = await readFile(dir); if (!d) alert('Não há casa.json nesta pasta.'); return d; }
+  catch (e) { alert('Não consegui ler o casa.json: ' + e.message); return null; }
+}
+// Antes de SUBSTITUIR os dados: guarda os atuais e evita que a gravação seguinte junte de volta o que foi descartado
+export async function safetyCopy() {
+  const st = getSt();
+  if (dir) { try { await put('casa.antes-de-restaurar.json', JSON.stringify(st)); } catch { exportJSON(st, 'casa-antes-de-restaurar'); } replacing = true; }
+  else exportJSON(st, 'casa-antes-de-restaurar');
 }
 export async function pickDir() {
   try {
@@ -104,6 +141,7 @@ function status() {
     t.push(dir ? `📁 Pasta do HD conectada: ${dir.name}. O que você salva é gravado lá.`
       : wait ? `📁 A pasta "${wait.name}" precisa de permissão: clique em "Reconectar pasta do HD".` : '📁 Nenhuma pasta do HD conectada.');
     $('dirBtn').textContent = wait ? 'Reconectar pasta do HD' : dir ? 'Trocar pasta do HD' : 'Abrir pasta do HD';
+    $('dirRestoreBtn').hidden = !dir;
   }
   if (err) t.push('⚠️ ' + err);
   if (!dir && n) t.push(`📤 ${n} alteração(ões) ainda não exportadas para o computador.`);

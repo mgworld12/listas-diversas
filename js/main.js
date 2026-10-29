@@ -1,6 +1,6 @@
 import { ICONS, KEYWORDS } from './config.js';
-import { load, save, slug, fix, uid, tomb, exportJSON, importJSON } from './storage.js';
-import { initSync, exportLote, mergeFile, pickDir } from './sync.js';
+import { load, save, slug, fix, uid, tomb, importJSON } from './storage.js';
+import { initSync, exportLote, mergeFile, mergeData, pickDir, saveBackup, readDirBackup, safetyCopy } from './sync.js';
 import { render, renderResults, renderList, updateTotals, renderSaved, renderDocs } from './render.js';
 import { exportXlsx, snapshot } from './export.js';
 import { scanCode, resizeImage } from './media.js';
@@ -280,16 +280,22 @@ $('printBtn').onclick = () => window.print();
 $('xlsxBtn').onclick = () => { const s = snapshot(st); exportXlsx(s.rows, s.total).catch(xlsxErr); };
 
 // ---------- Backup ----------
-$('backupBtn').onclick = () => exportJSON(st);
+$('backupBtn').onclick = () => saveBackup();
 $('restoreBtn').onclick = () => $('restoreFile').click();
+// Por padrão JUNTA (não apaga nada); substituir tudo é a segunda opção e guarda uma cópia antes
+async function applyBackup(d) {
+  if (confirm('Juntar este backup aos dados atuais?\n\nOK = juntar (recomendado: não apaga nada)\nCancelar = ver a opção de substituir tudo')) {
+    const n = mergeData(d); return alert(`Juntado: ${n.add} novo(s), ${n.upd} atualizado(s), ${n.del} excluído(s).`);
+  }
+  if (!confirm('Substituir TODOS os dados atuais pelo backup?\n\nUma cópia dos dados atuais será guardada antes.')) return;
+  await safetyCopy(); st = fix(d); st.unitsCleaned = true; save(st); resetForm(); refresh();
+}
 $('restoreFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  try {
-    const d = await importJSON(f);
-    if (!confirm('Substituir todos os dados atuais pelo backup?')) return;
-    st = fix(d); st.unitsCleaned = true; save(st); resetForm(); refresh();
-  } catch { alert('Arquivo de backup inválido.'); }
+  let d; try { d = await importJSON(f); } catch { return alert('Arquivo de backup inválido.'); }
+  await applyBackup(d);
 };
+$('dirRestoreBtn').onclick = async () => { const d = await readDirBackup(); if (d) await applyBackup(d); };
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
 fillSelects('', ''); fillColors(''); refresh();
@@ -305,4 +311,4 @@ $('mergeFile').onchange = async e => {
   catch { alert('Arquivo inválido.'); }
 };
 $('dirBtn').onclick = pickDir;
-$('ver').textContent = 'Versão 6 carregada';
+$('ver').textContent = 'Versão 7 carregada';

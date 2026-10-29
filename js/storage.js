@@ -82,10 +82,13 @@ function migrate() {
   }));
   return st;
 }
-export function exportJSON(st) {
+// Baixa o backup com nome único (data e hora), assim o navegador nunca cria "(1)", "(2)"...
+export function exportJSON(st, prefix = 'casa') {
+  const d = new Date(), name = `${prefix}-${d.toLocaleDateString('sv-SE')}-${d.toTimeString().slice(0, 5).replace(':', '')}.json`;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(st, null, 2)], { type: 'application/json' }));
-  a.download = 'listas-setores-backup.json'; a.click(); URL.revokeObjectURL(a.href);
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  return name;
 }
 export async function importJSON(file) {
   const data = JSON.parse(await file.text());
