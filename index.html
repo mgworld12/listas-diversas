@@ -141,7 +141,7 @@
     <div id="docCnpjWrap"><label for="docCnpj">CNPJ:</label><input type="text" id="docCnpj" maxlength="18" inputmode="numeric"></div>
     <div class="row">
       <div class="field grow"><label for="docDate">Dia:</label><input type="date" id="docDate" required></div>
-      <div class="field grow"><label for="docValue">Valor (R$):</label><input type="number" id="docValue" min="0" step="0.01" inputmode="decimal"></div>
+      <div class="field grow"><label for="docValue">Valor:</label><div style="display:flex;gap:6px"><select id="docCur" aria-label="Moeda" style="width:auto"></select><input type="text" id="docValue" inputmode="numeric" placeholder="R$ 0,00" autocomplete="off" style="flex:1;min-width:0"></div></div>
     </div>
     <label for="docDesc">Descrição:</label>
     <input type="text" id="docDesc" maxlength="80" placeholder="Ex.: Conta de luz">
