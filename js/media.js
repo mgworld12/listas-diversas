@@ -57,3 +57,17 @@ export function resizeImage(file, size = 128) {
     img.onerror = () => { URL.revokeObjectURL(url); err(new Error('imagem')); }; img.src = url;
   });
 }
+
+// Tenta ler um código de barras / QR Code dentro de uma foto (devolve o texto ou null)
+export async function codeFromImage(file) {
+  try {
+    const bmp = await createImageBitmap(file);
+    if ('BarcodeDetector' in window) {
+      const det = new BarcodeDetector({ formats: await BarcodeDetector.getSupportedFormats() }), r = await det.detect(bmp);
+      return r[0] ? r[0].rawValue : null;
+    }
+    await loadZX();
+    const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height; c.getContext('2d').drawImage(bmp, 0, 0);
+    return new ZXing.MultiFormatReader().decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(c)))).getText();
+  } catch { return null; }
+}

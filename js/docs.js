@@ -3,13 +3,23 @@ const dig = s => (s || '').replace(/\D/g, '');
 const get = (url, ms = 8000) => fetch(url, { signal: AbortSignal.timeout(ms) });
 export const cnpjFmt = c => c.length === 14 ? c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : c;
 
-// ---- Produto pelo código de barras (Open Food Facts, base aberta) ----
+// ---- Produto pelo código de barras (bases abertas: alimentos, cosméticos e produtos em geral) ----
+const BASES = ['world.openfoodfacts.org', 'world.openbeautyfacts.org', 'world.openproductsfacts.org'];
 export async function lookupProduct(code) {
-  const r = await get(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,brands,quantity,categories_tags,image_front_small_url`);
-  const j = await r.json(); const p = j.product;
-  if (j.status !== 1 || !p) return null;
-  return { name: (p.product_name || '').trim(), brand: (p.brands || '').split(',')[0].trim(), quantity: (p.quantity || '').trim(),
-    food: /food|beverage|snack|drink/.test((p.categories_tags || []).join(' ')), image: p.image_front_small_url || '' };
+  let fail = 0;
+  for (const h of BASES) {
+    try {
+      const r = await get(`https://${h}/api/v2/product/${code}.json?fields=product_name,generic_name,brands,brand_owner,manufacturing_places,quantity,ingredients_text,serving_size,categories_tags,image_front_small_url`);
+      const j = await r.json(), p = j.product;
+      if (j.status !== 1 || !p || !(p.product_name || '').trim()) continue;
+      const q = (p.quantity || '').trim(), vol = /\d\s*(ml|cl|l|lt|litros?)\b/i.test(q);
+      return { name: p.product_name.trim(), brand: (p.brands || '').split(',')[0].trim(), maker: (p.brand_owner || p.manufacturing_places || '').trim(),
+        quantity: vol ? '' : q, volume: vol ? q : '', comp: (p.ingredients_text || '').trim(), portion: (p.serving_size || '').trim(), specs: (p.generic_name || '').trim(),
+        food: /food|beverage|snack|drink/.test((p.categories_tags || []).join(' ')), image: p.image_front_small_url || '' };
+    } catch { fail++; }
+  }
+  if (fail === BASES.length) throw new Error('offline');
+  return null;
 }
 export async function fetchImage(url) { const r = await get(url); if (!r.ok) throw new Error('img'); return r.blob(); }
 export async function lookupCnpj(cnpj) {
