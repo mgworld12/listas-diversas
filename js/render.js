@@ -124,28 +124,51 @@ export function renderSaved(st, cb) {
   });
 }
 
-// Compras (NF) e contas cadastradas
+// Compras (NF) e contas cadastradas, em tabela: colunas alinhadas e largura conforme o maior texto
 export function renderDocs(st, cb) {
   const box = document.getElementById('docsPanel'); box.replaceChildren(); box.hidden = !st.docs.length;
   if (!st.docs.length) return;
   box.append(el('h2', '', 'Compras e contas'));
-  const tot = {};   // moedas diferentes não se somam: um total para cada moeda
-  [...st.docs].sort((a, b) => (b.date || '').localeCompare(a.date || '')).forEach(d => {
-    const cur = d.currency || 'BRL'; tot[cur] = (tot[cur] || 0) + (d.value || 0);
-    const r = el('div', 'rrow'), sec = st.sectors.find(s => s.id === d.sectorId);
-    // A lixeira fica ao lado do nome do estabelecimento
-    r.append(el('span', 'rs', (d.type === 'nf' ? '🧾 ' : '💡 ') + (d.date ? d.date.split('-').reverse().join('/') : '')), el('strong', '', d.store || d.desc || '—'), btn('🗑️', 'Excluir', () => cb.del(d.id)));
-    const extra = [d.type === 'nf' ? '' : d.desc, d.cnpj ? 'CNPJ ' + cnpjFmt(d.cnpj) : '', sec ? `${sec.icon} ${sec.name}` : ''].filter(Boolean).join(' • ');
-    if (extra) r.append(el('span', 'notes', extra));
-    r.append(el('span', '', money(d.value || 0, cur)));
-    if (d.link) { const a = el('a', '', 'Abrir nota'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; r.append(a); }
-    if (d.items && d.items.length) {   // itens da compra: recolhidos, abrem na setinha
-      const det = el('details', 'items'); det.append(el('summary', '', `Itens (${d.items.length})`));
-      d.items.forEach(i => det.append(el('div', 'notes', [i.name, i.qty && 'x' + i.qty, i.total != null && money(i.total, cur)].filter(Boolean).join(' • '))));
-      r.append(det);
-    }
-    box.append(r);
+  const docs = [...st.docs].sort((a, b) => (b.date || '').localeCompare(a.date || '')), cur = d => d.currency || 'BRL';
+  const secOf = d => { const s = st.sectors.find(x => x.id === d.sectorId); return s ? `${s.icon} ${s.name}` : ''; };
+  const all = [
+    { h: 'Data', c: 'nw', always: 1, get: d => (d.type === 'nf' ? '🧾 ' : '💡 ') + (d.date ? d.date.split('-').reverse().join('/') : '') },
+    { h: 'Estabelecimento', always: 1, name: 1 },
+    { h: 'CNPJ', c: 'nw num', get: d => d.cnpj ? cnpjFmt(d.cnpj) : '' },
+    { h: 'Setor', c: 'nw', get: secOf },
+    { h: 'Referente a', get: d => d.type === 'nf' ? '' : d.desc || '' },
+    { h: 'Valor', c: 'nw num val', always: 1, value: 1 },
+    { h: 'Nota', c: 'nw', link: 1 }
+  ];
+  const cols = all.filter(c => c.always || docs.some(d => c.link ? d.link : c.get(d)));   // colunas sem nenhum dado ficam ocultas
+  const t = el('table', 'dtable'), thead = el('thead'), hr = el('tr'), tb = el('tbody'), tot = {};
+  cols.forEach(c => hr.append(el('th', c.c || '', c.h))); thead.append(hr);
+  docs.forEach(d => {
+    tot[cur(d)] = (tot[cur(d)] || 0) + (d.value || 0);
+    const tr = el('tr');
+    cols.forEach(c => {
+      const td = el('td', c.c || ''); td.dataset.l = c.h;
+      if (c.name) {   // a lixeira fica ao lado do nome do estabelecimento
+        td.append(el('strong', '', d.store || d.desc || '—'), ' ', btn('🗑️', 'Excluir', () => cb.del(d.id)));
+        if (d.items && d.items.length) {   // itens da compra: recolhidos, abrem na setinha
+          const det = el('details', 'items'); det.append(el('summary', '', `Itens (${d.items.length})`));
+          d.items.forEach(i => det.append(el('div', 'notes', [i.name, i.qty && 'x' + i.qty, i.total != null && money(i.total, cur(d))].filter(Boolean).join(' • '))));
+          td.append(det);
+        }
+      } else if (c.value) td.textContent = money(d.value || 0, cur(d));
+      else if (c.link) { if (d.link) { const a = el('a', '', 'Abrir nota'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; td.append(a); } }
+      else td.textContent = c.get(d);
+      tr.append(td);
+    });
+    tb.append(tr);
   });
-  const parts = Object.entries(tot).sort(([a], [b]) => a === 'BRL' ? -1 : b === 'BRL' ? 1 : a.localeCompare(b)).map(([c, v]) => money(v, c));
-  box.append(el('p', 'total', (parts.length > 1 ? 'Totais: ' : 'Total: ') + parts.join(' • ')));
+  // Rodapé: um total por moeda, alinhado sob a coluna Valor
+  const vi = cols.findIndex(c => c.value), after = cols.length - vi - 1;
+  const parts = Object.entries(tot).sort(([a], [b]) => a === 'BRL' ? -1 : b === 'BRL' ? 1 : a.localeCompare(b));
+  const tf = el('tfoot'), fr = el('tr'), lab = el('td', '', parts.length > 1 ? 'Totais' : 'Total'), sum = el('td', 'nw num val');
+  if (vi > 0) lab.colSpan = vi;
+  parts.forEach(([c, v]) => sum.append(el('div', '', money(v, c))));
+  fr.append(lab, sum); if (after > 0) { const e = el('td'); e.colSpan = after; fr.append(e); }
+  tf.append(fr); t.append(thead, tb, tf);
+  const wrap = el('div', 'tscroll'); wrap.append(t); box.append(wrap);
 }
