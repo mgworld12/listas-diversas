@@ -110,3 +110,21 @@ dialog.reg{max-width:560px;max-height:92vh;overflow:auto}
 .rrow details.items{flex-basis:100%}
 details.items summary{cursor:pointer;font-weight:600;color:var(--muted)}
 [hidden]{display:none!important}
+
+/* Compras e contas em tabela */
+.dtable{width:100%;border-collapse:collapse}
+.dtable th,.dtable td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.dtable th{font-size:.8rem;color:var(--muted);white-space:nowrap}
+.dtable .nw{white-space:nowrap}
+.dtable .num{font-variant-numeric:tabular-nums}
+.dtable .val{text-align:right}
+.dtable tfoot td{font-weight:700;border-bottom:0}
+.dtable button{border:0;background:none;cursor:pointer;font-size:1rem;padding:2px}
+.dtable details.items{margin-top:4px}
+@media (max-width:700px){
+  .dtable,.dtable tbody,.dtable tfoot,.dtable tr,.dtable td{display:block;width:100%}
+  .dtable thead{display:none}
+  .dtable tr{border:1px solid var(--line);border-radius:8px;margin-bottom:10px;padding:6px}
+  .dtable td{border:0;padding:3px 6px;text-align:left;white-space:normal}
+  .dtable td[data-l]::before{content:attr(data-l);display:block;font-size:.75rem;color:var(--muted)}
+}
