@@ -154,12 +154,35 @@ $('imgFile').onchange = async e => {
 // ---------- Cadastrar NF e contas (QR Code / código de barras) ----------
 let docType = 'nf', docKey = '', docLink = '';
 const dmsg = t => { $('docMsg').textContent = t; };
+
+// Valor no formato brasileiro (R$ 1.234,56) com opção de outras moedas. Digite só os números: 12345 vira R$ 123,45.
+const CURRENCIES = ['BRL', 'USD', 'EUR', 'GBP', 'ARS', 'CLP', 'PYG', 'UYU', 'CAD', 'CHF', 'JPY', 'CNY'], OTHER = '__outra__';
+const curFmt = c => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: c });
+const curDec = c => curFmt(c).resolvedOptions().maximumFractionDigits;
+let docVal = 0, curNow = 'BRL';
+function fillCur(value = 'BRL') {
+  const codes = [...new Set([...CURRENCIES, ...st.docs.map(d => d.currency).filter(Boolean), value])];
+  const s = $('docCur'); s.replaceChildren(...codes.map(c => new Option(c, c)), new Option('Outra...', OTHER)); s.value = curNow = value;
+}
+function setValue(n) {
+  const c = $('docCur').value, k = 10 ** curDec(c);
+  docVal = Math.round((Number(n) || 0) * k) / k;
+  $('docValue').value = docVal ? curFmt(c).format(docVal) : '';
+}
+$('docValue').oninput = e => setValue(Number(e.target.value.replace(/\D/g, '').slice(0, 13)) / 10 ** curDec($('docCur').value));
+$('docCur').onchange = e => {
+  if (e.target.value === OTHER) {
+    const c = (prompt('Código da moeda com 3 letras (ex.: USD, EUR, GBP):') || '').trim().toUpperCase();
+    if (/^[A-Z]{3}$/.test(c)) fillCur(c); else { fillCur(curNow); if (c) alert('Código de moeda inválido.'); }
+  } else curNow = e.target.value;
+  setValue(docVal);
+};
 function openDoc(type) {
   docType = type; docKey = ''; docLink = '';
   $('docTitle').textContent = type === 'nf' ? 'Cadastrar NF' : 'Cadastrar conta';
   $('docStoreL').textContent = type === 'nf' ? 'Loja:' : 'Beneficiário / banco:';
   $('docCnpjWrap').hidden = type !== 'nf';
-  ['docCode', 'docStore', 'docCnpj', 'docValue', 'docDesc'].forEach(i => $(i).value = '');
+  ['docCode', 'docStore', 'docCnpj', 'docValue', 'docDesc'].forEach(i => $(i).value = ''); fillCur('BRL'); docVal = 0;
   $('docDate').value = type === 'nf' ? new Date().toLocaleDateString('sv-SE') : '';
   dmsg(''); $('docDlg').returnValue = ''; $('docDlg').showModal();
 }
@@ -170,7 +193,7 @@ async function readDoc(text) {
     if (!r) return dmsg('Não encontrei a chave de acesso (44 dígitos) neste código.');
     if (st.docs.some(d => d.key === r.key)) return dmsg('Esta nota já foi cadastrada.');
     docKey = r.key; docLink = r.link; $('docCnpj').value = maskCnpj(r.cnpj);
-    if (r.date) $('docDate').value = r.date; if (r.value) $('docValue').value = r.value;
+    if (r.date) $('docDate').value = r.date; if (r.value) { fillCur('BRL'); setValue(r.value); }
     dmsg('Nota lida. Buscando a loja pelo CNPJ...');
     try {
       const n = await lookupCnpj(r.cnpj); if (n && !$('docStore').value) $('docStore').value = n;
@@ -181,7 +204,7 @@ async function readDoc(text) {
     if (!r) return dmsg('Código não reconhecido. Use o código de barras do boleto ou da conta (44 a 48 dígitos) ou o QR Code do Pix.');
     if (r.key && st.docs.some(d => d.key === r.key)) return dmsg('Este boleto/conta já foi cadastrado.');
     docKey = r.key; $('docStore').value = r.store; $('docDesc').value = r.desc;
-    if (r.value) $('docValue').value = r.value; if (r.date) $('docDate').value = r.date;
+    if (r.value) { fillCur('BRL'); setValue(r.value); } if (r.date) $('docDate').value = r.date;
     dmsg(r.date ? 'Lido. O dia é o vencimento do boleto; confira e descreva a conta.' : 'Lido. Informe o dia e confira os dados.');
   }
 }
@@ -209,7 +232,7 @@ $('docCode').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); rea
 $('docDlg').onclose = () => {
   if ($('docDlg').returnValue !== 'ok') return;
   const d = { id: uid(), u: Date.now(), type: docType, store: $('docStore').value.trim(), cnpj: $('docCnpj').value.replace(/\D/g, ''), date: $('docDate').value,
-    value: Number($('docValue').value) || 0, desc: $('docDesc').value.trim(), key: docKey, link: docLink };
+    value: docVal || 0, currency: $('docCur').value, desc: $('docDesc').value.trim(), key: docKey, link: docLink };
   if (d.key && st.docs.some(x => x.key === d.key)) return alert('Este documento já foi cadastrado.');
   st.docs.push(d); save(st); refresh();
 };
@@ -327,4 +350,4 @@ $('mergeFile').onchange = async e => {
   catch { alert('Arquivo inválido.'); }
 };
 $('dirBtn').onclick = pickDir;
-$('ver').textContent = 'Versão 7 carregada';
+$('ver').textContent = 'Versão 8 carregada';

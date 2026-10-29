@@ -3,7 +3,10 @@ import { cnpjFmt } from './docs.js';
 // Usa textContent (nunca innerHTML) para evitar injeção de código.
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 const btn = (txt, title, fn, cls = '') => { const b = el('button', cls, txt); b.type = 'button'; b.title = title; b.onclick = fn; return b; };
-const money = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const money = (v, cur = 'BRL') => {
+  try { return v.toLocaleString('pt-BR', { style: 'currency', currency: cur || 'BRL' }); }
+  catch { return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+};
 const dot = c => { const d = el('span', 'dot sm'); d.style.setProperty('--c', c.hex); d.title = c.name; return d; };
 const thumb = it => { if (!it.image) return null; const i = el('img', 'thumb'); i.src = it.image; i.alt = ''; return i; };
 const nameEl = it => { const n = el('div', 'name', it.name); if (it.color) n.append(dot(it.color)); return n; };
@@ -126,17 +129,18 @@ export function renderDocs(st, cb) {
   const box = document.getElementById('docsPanel'); box.replaceChildren(); box.hidden = !st.docs.length;
   if (!st.docs.length) return;
   box.append(el('h2', '', 'Compras e contas'));
-  let total = 0;
+  const tot = {};   // moedas diferentes não se somam: um total para cada moeda
   [...st.docs].sort((a, b) => (b.date || '').localeCompare(a.date || '')).forEach(d => {
-    total += d.value || 0;
+    const cur = d.currency || 'BRL'; tot[cur] = (tot[cur] || 0) + (d.value || 0);
     const r = el('div', 'rrow');
     r.append(el('span', 'rs', (d.type === 'nf' ? '🧾 ' : '💡 ') + (d.date ? d.date.split('-').reverse().join('/') : '')), el('strong', '', d.store || d.desc || '—'));
     const extra = [d.type === 'nf' ? '' : d.desc, d.cnpj ? 'CNPJ ' + cnpjFmt(d.cnpj) : ''].filter(Boolean).join(' • ');
     if (extra) r.append(el('span', 'notes', extra));
-    r.append(el('span', '', money(d.value || 0)));
+    r.append(el('span', '', money(d.value || 0, cur)));
     if (d.link) { const a = el('a', '', 'Abrir nota'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; r.append(a); }
     r.append(btn('🗑️', 'Excluir', () => cb.del(d.id)));
     box.append(r);
   });
-  box.append(el('p', 'total', 'Total: ' + money(total)));
+  const parts = Object.entries(tot).sort(([a], [b]) => a === 'BRL' ? -1 : b === 'BRL' ? 1 : a.localeCompare(b)).map(([c, v]) => money(v, c));
+  box.append(el('p', 'total', (parts.length > 1 ? 'Totais: ' : 'Total: ') + parts.join(' • ')));
 }
