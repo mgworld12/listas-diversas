@@ -179,7 +179,7 @@ async function readNF(text) {
   if (text.length > 300 && /Dados dos Produtos|Chave de Acesso|Valor Total/i.test(text)) { $('regCode').value = ''; return applyNFText(text); }   // página inteira colada no campo do código
   const r = parseNF(text);
   if (!r) { const n = text.replace(/\D/g, '').length; return rmsg(n && n < 44 && !/^https?:/i.test(text) ? `A chave da nota tem 44 números; faltam ${44 - n}.` : 'Não encontrei a chave de acesso (44 dígitos) neste código.'); }
-  if (st.docs.some(d => d.key === r.key && d.id !== editingDoc)) return rmsg('Esta nota já foi cadastrada.');
+  const dup = st.docs.find(d => d.key === r.key && d.id !== editingDoc); if (dup) return openDup(dup, r.link);
   docKey = r.key; docLink = r.link; $('docCnpj').value = maskCnpj(r.cnpj); showNfExtra();
   if (r.date) setDocDate(r.date, false);
   else {   // a chave só informa o mês e o ano da emissão: o dia precisa ser conferido
@@ -194,13 +194,21 @@ async function readNF(text) {
   rmsg(tip + (r.date ? '' : ' A nota só informa o mês: confira o dia (campo destacado).') + ' Para trazer itens e valor, use "colar o texto da página".');
   if (r.link) fetchNFPage(r.link).then(tx => { if (tx && docKey === r.key) applyNFText(tx, true); }).catch(() => {});   // quase sempre o site da Fazenda bloqueia; então o texto é colado
 }
+// Documento já cadastrado: abre o registro existente para completar ou corrigir (valor, itens, setor...), em vez de recusar
+function openDup(dup, link, text) {
+  $('regDlg').close(); openReg(dup.type, null, dup);
+  if (!docLink && link) { docLink = link; showNfExtra(); }
+  rmsg(`Este documento já estava cadastrado (${dup.store || 'sem nome'}${dup.date ? ', ' + dup.date.split('-').reverse().join('/') : ''}). Abri o registro para você completar ou corrigir.` +
+    (dup.type === 'nf' ? ' Para trazer data, valor e itens, copie a página da DANFE e use "Colar da área de transferência".' : ''));
+  if (text) applyNFText(text);
+}
 // Preenche tudo o que a página da nota traz: estabelecimento, CNPJ, data, valor e itens
 function applyNFText(text, quiet = false) {
   const r = parseNFText(text);
   if (!r.items.length && !r.value && !r.store) { if (!quiet) rmsg('Não reconheci os dados da nota nesse texto. Copie a página inteira da nota e cole de novo.'); return false; }
   if (docKey && r.key && r.key !== docKey) { rmsg('O texto copiado é de outra nota (a chave não confere com a que foi lida). Copie a nota certa ou feche e refaça o cadastro.'); return false; }
   if (r.key) {
-    if (st.docs.some(d => d.key === r.key && d.id !== editingDoc)) { rmsg('Esta nota já foi cadastrada.'); return false; }
+    const dup = st.docs.find(d => d.key === r.key && d.id !== editingDoc); if (dup) { openDup(dup, '', text); return false; }
     docKey = r.key; $('regCode').value = r.key;
   }
   if (r.cnpj) { $('docCnpj').value = maskCnpj(r.cnpj); if (r.store) st.cnpjs[r.cnpj] = r.store; }
@@ -235,7 +243,7 @@ $('nfPaste').oninput = e => { clearTimeout(pasteTimer); pasteTimer = setTimeout(
 function readBill(text) {
   const r = parseBill(text);
   if (!r) { const n = text.replace(/\D/g, '').length; return rmsg(n && n < 44 && !text.startsWith('000201') ? '' : 'Código não reconhecido. Use o código de barras do boleto ou da conta (44 a 48 dígitos) ou o QR Code do Pix.'); }
-  if (r.key && st.docs.some(d => d.key === r.key)) return rmsg('Este boleto/conta já foi cadastrado.');
+  const dup = r.key && st.docs.find(d => d.key === r.key && d.id !== editingDoc); if (dup) return openDup(dup, '');
   docKey = r.key; $('docStore').value = r.store; $('docDesc').value = r.desc;
   if (r.value) { fillCur('BRL'); setValue(r.value); } if (r.date) $('docDate').value = r.date;
   rmsg(r.date ? 'Lido. O dia é o vencimento; confira os dados e o CNPJ.' : 'Lido. Informe o dia e confira os dados.');
@@ -433,4 +441,4 @@ $('mergeFile').onchange = async e => {
   catch { alert('Arquivo inválido.'); }
 };
 $('dirBtn').onclick = pickDir;
-$('ver').textContent = 'Versão 13 carregada';
+$('ver').textContent = 'Versão 14 carregada';
