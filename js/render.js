@@ -20,71 +20,66 @@ export function stockState(it) {
 export const itemLine = (i, cur = 'BRL') => [i.name, i.qty != null && i.qty !== '' ? `${Number(i.qty).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} ${i.unit || ''}`.trim() : '', i.total != null && i.total !== '' ? money(Number(i.total), cur) : ''].filter(Boolean).join(' • ');
 export const info = it => [[it.qty, it.unit].filter(Boolean).join(' '), it.brand, it.content, it.volume].filter(Boolean).join(' • ');
 
-// NFs e contas do setor, dentro do cartão do setor (recolhível; a posição aberta/fechada é lembrada)
-const openSec = new Map();
-const byDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '');
-function docsBlock(sec, docs, cb) {
-  const tot = {}; docs.forEach(d => { const c = d.currency || 'BRL'; tot[c] = (tot[c] || 0) + (d.value || 0); });
-  const det = el('details', 'secdocs'), st0 = openSec.get(sec.id); det.open = st0 === undefined ? docs.length <= 5 : st0;
-  det.append(el('summary', '', `🧾 Compras e contas (${docs.length}) • ${Object.entries(tot).sort(([a], [b]) => a === 'BRL' ? -1 : b === 'BRL' ? 1 : a.localeCompare(b)).map(([c, v]) => money(v, c)).join(' + ')}`));
-  det.ontoggle = () => openSec.set(sec.id, det.open);
-  docs.forEach(d => {
-    const cur = d.currency || 'BRL', row = el('div', 'docrow'), l1 = el('div', 'dr1');
-    l1.append(el('span', 'rs', (d.type === 'nf' ? '🧾 ' : '💡 ') + (d.date ? d.date.split('-').reverse().join('/') : '')), el('strong', '', d.store || d.desc || '—'),
-      btn('✏️', 'Editar', () => cb.docEdit(d.id)), btn('🗑️', 'Excluir', () => cb.docDel(d.id)));
-    row.append(l1);
-    const l2 = el('div', 'notes'); l2.append([d.cnpj ? 'CNPJ ' + cnpjFmt(d.cnpj) : '', d.type === 'conta' ? d.desc : ''].filter(Boolean).join(' • ') + ((d.cnpj || (d.type === 'conta' && d.desc)) ? ' • ' : ''));
-    const v = el('span', d.value ? '' : 'zero', money(d.value || 0, cur)); if (!d.value) v.title = 'Sem valor: use ✏️ para informar';
-    l2.append(v);
-    if (d.link) { const a = el('a', '', 'Abrir nota'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; l2.append(' • ', a); }
-    row.append(l2);
-    if (d.items && d.items.length) {   // itens da compra: recolhidos, abrem na setinha
-      const it = el('details', 'items'); it.append(el('summary', '', `Itens (${d.items.length})`));
-      d.items.forEach(i => it.append(el('div', 'notes', itemLine(i, cur)))); row.append(it);
-    }
-    det.append(row);
+// ---------- Barra de setores (filtro) e tabela de produtos ----------
+const SEC = { id: '' };   // setor escolhido na barra: filtra a tabela de produtos e a de compras e contas
+const qtyInfo = it => [[it.qty, it.unit].filter(Boolean).join(' '), it.content, it.volume].filter(Boolean).join(' • ');
+function renderSecBar(st, cb) {
+  const bar = document.getElementById('secbar'); bar.replaceChildren();
+  if (SEC.id && !st.sectors.some(s => s.id === SEC.id)) SEC.id = '';
+  const mk = (id, label, n, color) => { const b = btn(label, 'Mostrar: ' + label, () => { SEC.id = id; cb.refresh(); }, 'secbtn' + (SEC.id === id ? ' on' : '')); b.style.setProperty('--sc', color); b.append(' ', el('span', 'n', n)); return b; };
+  bar.append(mk('', '📋 Todos', st.items.length + st.docs.length, 'var(--primary)'));
+  st.sectors.forEach(s => bar.append(mk(s.id, `${s.icon} ${s.name}`, st.items.filter(i => i.sectorId === s.id).length + st.docs.filter(d => d.sectorId === s.id).length, s.color)));
+  bar.append(btn('⚙️ Setores', 'Criar, editar, ordenar e excluir setores', cb.secManage, 'secbtn'));
+}
+function renderProducts(st, listMode, cb) {
+  const box = document.getElementById('prodPanel'); box.replaceChildren();
+  const idx = new Map(st.sectors.map((s, i) => [s.id, i]));
+  const items = st.items.filter(i => !SEC.id || i.sectorId === SEC.id)
+    .sort((a, b) => (a.done - b.done) || ((idx.get(a.sectorId) ?? 99) - (idx.get(b.sectorId) ?? 99)) || a.name.localeCompare(b.name, 'pt-BR'));
+  box.append(el('h2', '', `Produtos (${items.length})`));
+  if (!items.length) return box.append(el('p', 'empty', SEC.id ? 'Nenhum produto neste setor.' : 'Nenhum produto cadastrado. Use "Cadastrar Produto".'));
+  const secOf = it => st.sectors.find(s => s.id === it.sectorId);
+  const all = [
+    { h: '', c: 'chk', always: 1, chk: 1 },
+    { h: 'Setor', c: 'ic', always: 1, sec: 1 },
+    { h: 'Produto', always: 1, name: 1 },
+    { h: 'Marca / fabricante', get: i => [i.brand, i.maker].filter(Boolean).join(' / ') },
+    { h: 'Quantidade', c: 'nw', get: qtyInfo },
+    { h: 'Estoque', c: 'nw', stock: 1, any: items.some(i => stockState(i).n !== null) },
+    { h: 'Validade', c: 'nw', exp: 1, any: items.some(i => i.expiry) },
+    { h: '', c: 'nw', always: 1, acts: 1 }
+  ];
+  const cols = all.filter(c => c.always || (c.any !== undefined ? c.any : items.some(i => c.get(i))));
+  const t = el('table', 'dtable'), thead = el('thead'), hr = el('tr'), tb = el('tbody');
+  cols.forEach(c => hr.append(el('th', c.c || '', c.h))); thead.append(hr);
+  items.forEach(it => {
+    const tr = el('tr', it.done && !listMode ? 'done' : ''), S = stockState(it);
+    cols.forEach(c => {
+      const td = el('td', c.c || ''); if (c.h) td.dataset.l = c.h;
+      if (c.chk) {
+        const k = el('input'); k.type = 'checkbox'; k.style.width = 'auto';
+        if (listMode) { k.checked = st.list.ids.includes(it.id); k.setAttribute('aria-label', 'Incluir na lista'); k.onchange = () => cb.select(it.id); }
+        else { k.checked = it.done; k.setAttribute('aria-label', 'Concluído'); k.onchange = () => cb.toggle(it.id); }
+        td.append(k);
+      } else if (c.sec) { const s = secOf(it); td.textContent = s ? s.icon : '—'; td.title = s ? s.name : 'Sem setor'; }
+      else if (c.name) {
+        const th = thumb(it); if (th) td.append(th);
+        td.append(el('strong', 'pname', it.name)); if (it.color) td.append(dot(it.color));
+        if (it.notes) td.append(el('div', 'notes', it.notes));
+      } else if (c.stock) {
+        if (S.n !== null) { const w = el('span', 'stockc' + (S.low ? ' bad' : '')); w.append(btn('−', 'Tirar 1 do estoque', () => cb.stock(it.id, -1), 'mv'), el('span', 'nn', S.n), btn('+', 'Somar 1 ao estoque', () => cb.stock(it.id, 1), 'mv')); td.append(w); }
+      } else if (c.exp) { if (it.expiry) { const s = el('span', S.expired ? 'bad' : S.soon ? 'soon' : '', it.expiry.split('-').reverse().join('/')); td.append(s); } }
+      else if (c.acts) {
+        const a = el('a', '', '🔍'); a.href = 'https://www.google.com/search?q=' + encodeURIComponent('"' + it.name + '"'); a.target = '_blank'; a.rel = 'noopener'; a.title = 'Buscar no Google';
+        td.append(a, btn('✏️', 'Editar', () => cb.edit(it.id)), btn('🗑️', 'Excluir', () => cb.remove(it.id)));
+      } else td.textContent = c.get(it);
+      tr.append(td);
+    });
+    tb.append(tr);
   });
-  return det;
+  t.append(thead, tb); const wrap = el('div', 'tscroll'); wrap.append(t); box.append(wrap);
 }
-export function render(st, listMode, cb) {
-  renderAlerts(st, cb);
-  const box = document.getElementById('sectors'); box.replaceChildren();
-  st.sectors.forEach(sec => {
-    const items = st.items.filter(i => i.sectorId === sec.id).sort((a, b) => a.done - b.done), docs = st.docs.filter(d => d.sectorId === sec.id).sort(byDateDesc);
-    const card = el('section', 'sector'); card.style.setProperty('--sc', sec.color);
-    const head = el('header', 'sector-head'), acts = el('div', 'acts');
-    acts.append(btn('◀', 'Mover para trás', () => cb.secMove(sec.id, -1), 'mv'), btn('▶', 'Mover para frente', () => cb.secMove(sec.id, 1), 'mv'),
-      btn('✏️', 'Editar setor', () => cb.secEdit(sec.id)), btn('🗑️', 'Excluir setor', () => cb.secDel(sec.id)));
-    head.append(el('span', 'logo', sec.icon), el('h2', '', sec.name), acts, el('span', 'count', items.length + docs.length));
-    card.append(head);
-    if (!items.length && !docs.length) card.append(el('p', 'empty', 'Nenhum item neste setor.'));
-    items.forEach(it => card.append(itemCard(it, st, listMode, cb)));
-    if (docs.length) card.append(docsBlock(sec, docs, cb));
-    box.append(card);
-  });
-}
-
-function itemCard(it, st, listMode, cb) {
-  const row = el('div', 'item' + (it.done && !listMode ? ' done' : ''));
-  const chk = el('input'); chk.type = 'checkbox'; chk.style.width = 'auto';
-  if (listMode) { chk.checked = st.list.ids.includes(it.id); chk.setAttribute('aria-label', 'Incluir na lista'); chk.onchange = () => cb.select(it.id); }
-  else { chk.checked = it.done; chk.setAttribute('aria-label', 'Concluído'); chk.onchange = () => cb.toggle(it.id); }
-  const body = el('div', 'body');
-  body.append(nameEl(it));
-  if (info(it)) body.append(el('div', 'meta', info(it)));
-  if (it.notes) body.append(el('div', 'notes', it.notes));
-  const S = stockState(it), tags = el('div', 'tags');
-  if (S.n !== null) tags.append(el('span', 'tag' + (S.low ? ' bad' : ''), 'Estoque: ' + S.n));
-  if (it.expiry) tags.append(el('span', 'tag' + (S.expired ? ' bad' : S.soon ? ' warn' : ''), 'Validade: ' + it.expiry.split('-').reverse().join('/')));
-  if (tags.children.length) body.append(tags);
-  const acts = el('div', 'acts');
-  if (S.n !== null && cb.stock) acts.append(btn('−', 'Tirar 1 do estoque', () => cb.stock(it.id, -1), 'mv'), btn('+', 'Somar 1 ao estoque', () => cb.stock(it.id, 1), 'mv'));
-  const a = el('a', '', '🔍'); a.href = 'https://www.google.com/search?q=' + encodeURIComponent('"' + it.name + '"');
-  a.target = '_blank'; a.rel = 'noopener'; a.title = 'Buscar no Google';
-  acts.append(a, btn('✏️', 'Editar', () => cb.edit(it.id)), btn('🗑️', 'Excluir', () => cb.remove(it.id)));
-  const t = thumb(it); row.append(chk, ...(t ? [t] : []), body, acts);
-  return row;
-}
+export function render(st, listMode, cb) { renderAlerts(st, cb); renderSecBar(st, cb); renderProducts(st, listMode, cb); }
 
 // Resultados das buscas: um grupo por termo; "×" remove o termo; clicar num resultado abre a edição
 export function renderResults(st, terms, norm, cb) {
@@ -202,29 +197,28 @@ export function renderDocs(st, cb) {
   let bar = box.querySelector('.docbar'), body = box.querySelector('.docbody');
   if (!bar) {   // filtros: criados uma vez; só a tabela é redesenhada (o campo de busca não perde o foco)
     bar = el('div', 'docbar noprint'); body = el('div', 'docbody');
-    const m = el('select'), s = el('select'), q = el('input'), x = btn('Exportar Excel', 'Salvar a lista filtrada em .xlsx', () => cur.cb.xlsx(shown), 'btn');
-    m.setAttribute('aria-label', 'Mês'); s.setAttribute('aria-label', 'Setor'); q.type = 'search'; q.placeholder = 'Buscar estabelecimento ou CNPJ'; q.setAttribute('aria-label', 'Buscar');
-    m.onchange = () => { F.m = m.value; renderDocs(cur.st, cur.cb); }; s.onchange = () => { F.s = s.value; renderDocs(cur.st, cur.cb); };
+    const m = el('select'), q = el('input'), x = btn('Exportar Excel', 'Salvar a lista filtrada em .xlsx', () => cur.cb.xlsx(shown), 'btn');
+    m.setAttribute('aria-label', 'Mês'); q.type = 'search'; q.placeholder = 'Buscar estabelecimento ou CNPJ'; q.setAttribute('aria-label', 'Buscar');
+    m.onchange = () => { F.m = m.value; renderDocs(cur.st, cur.cb); };
     q.oninput = () => { F.q = q.value; renderDocs(cur.st, cur.cb); };
-    bar.append(m, s, q, x); box.replaceChildren(el('h2', '', 'Compras e contas'), bar, body);
+    bar.append(m, q, x); box.replaceChildren(el('h2', '', 'Compras e contas'), bar, body);
   }
-  const [m, s] = bar.querySelectorAll('select');
+  const m = bar.querySelector('select');
   const months = [...new Set(st.docs.map(d => (d.date || '').slice(0, 7)).filter(Boolean))].sort().reverse();
   F.m = fillSel(m, [['', 'Todos os meses'], ...months.map(x => [x, x.slice(5) + '/' + x.slice(0, 4)])], F.m);
-  F.s = fillSel(s, [['', 'Todos os setores'], ...st.sectors.filter(x => st.docs.some(d => d.sectorId === x.id)).map(x => [x.id, `${x.icon} ${x.name}`])], F.s);
 
   const cur_ = d => d.currency || 'BRL', q = nz(F.q);
   const docs = [...st.docs].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  shown = docs.filter(d => (!F.m || (d.date || '').startsWith(F.m)) && (!F.s || d.sectorId === F.s) &&
+  shown = docs.filter(d => (!F.m || (d.date || '').startsWith(F.m)) && (!SEC.id || d.sectorId === SEC.id) &&
     (!q || nz([d.store, d.cnpj, d.cnpj ? cnpjFmt(d.cnpj) : '', d.desc].join(' ')).includes(q)));
   body.replaceChildren(resumo(st));
   if (!shown.length) return body.append(el('p', 'empty', 'Nenhum registro neste filtro.'));
-  const secOf = d => { const x = st.sectors.find(y => y.id === d.sectorId); return x ? `${x.icon} ${x.name}` : 'Sem setor'; };
+  const secOf = d => st.sectors.find(y => y.id === d.sectorId);
   const all = [
     { h: 'Data', c: 'nw', always: 1, get: d => (d.type === 'nf' ? '🧾 ' : '💡 ') + (d.date ? d.date.split('-').reverse().join('/') : '') },
     { h: 'Estabelecimento', always: 1, name: 1 },
     { h: 'CNPJ', c: 'nw num', get: d => d.cnpj ? cnpjFmt(d.cnpj) : '' },
-    { h: 'Setor', c: 'nw', get: secOf },
+    { h: 'Setor', c: 'ic', always: 1, get: d => { const x = secOf(d); return x ? x.icon : '—'; }, tip: d => { const x = secOf(d); return x ? x.name : 'Sem setor'; } },
     { h: 'Referente a', get: d => d.type === 'nf' ? '' : d.desc || '' },
     { h: 'Valor', c: 'nw num val', always: 1, value: 1 },
     { h: 'Nota', c: 'nw', link: 1 }
@@ -246,7 +240,7 @@ export function renderDocs(st, cb) {
         }
       } else if (c.value) { td.textContent = money(d.value || 0, cur_(d)); if (!d.value) { td.classList.add('zero'); td.title = 'Sem valor: use ✏️ para informar'; } }
       else if (c.link) { if (d.link) { const a = el('a', '', 'Abrir nota'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; td.append(a); } }
-      else td.textContent = c.get(d);
+      else { td.textContent = c.get(d); if (c.tip) td.title = c.tip(d); }
       tr.append(td);
     });
     tb.append(tr);

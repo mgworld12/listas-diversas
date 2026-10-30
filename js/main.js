@@ -59,7 +59,7 @@ $('pName').oninput = e => {
   if (id && st.sectors.some(s => s.id === id)) { $('regSector').value = id; auto = true; }
 };
 
-const cbs = { toggle, edit, remove, select, secMove, secEdit, secDel, stock, addLow, docEdit: editDoc, docDel: delDoc };
+const cbs = { toggle, edit, remove, select, secMove, secEdit, secDel, stock, addLow, docEdit: editDoc, docDel: delDoc, refresh: () => refresh(), secManage: openSectors };
 const refresh = () => {
   render(st, listMode, cbs);
   renderResults(st, searches, norm, { edit, drop: t => { searches = searches.filter(x => x !== t); refresh(); } });
@@ -71,6 +71,7 @@ const refresh = () => {
     del: delDoc, edit: editDoc, xlsx: list => exportDocs(list, st.sectors).catch(xlsxErr)
   });
   if (listMode) renderList(st, { price, store, qty, buyUnit });
+  if ($('secDlg').open) renderSecList();
 };
 
 // ---------- Imagem do produto ----------
@@ -197,6 +198,7 @@ async function readNF(text) {
 function applyNFText(text, quiet = false) {
   const r = parseNFText(text);
   if (!r.items.length && !r.value && !r.store) { if (!quiet) rmsg('Não reconheci os dados da nota nesse texto. Copie a página inteira da nota e cole de novo.'); return false; }
+  if (docKey && r.key && r.key !== docKey) { rmsg('O texto copiado é de outra nota (a chave não confere com a que foi lida). Copie a nota certa ou feche e refaça o cadastro.'); return false; }
   if (r.key) {
     if (st.docs.some(d => d.key === r.key && d.id !== editingDoc)) { rmsg('Esta nota já foi cadastrada.'); return false; }
     docKey = r.key; $('regCode').value = r.key;
@@ -210,6 +212,24 @@ function applyNFText(text, quiet = false) {
   rmsg(`Nota lida: ${r.items.length} item(ns)${r.value ? '' : '. Informe o valor'}. Confira os dados.`);
   return true;
 }
+// Colar da área de transferência: pelo botão, ou sozinho ao voltar da página da nota (o navegador pede permissão na primeira vez)
+let lastClip = '', clipBusy = false;
+const looksNF = t => !!t && t.length > 300 && /Dados dos Produtos|Chave de Acesso|Valor Total/i.test(t);
+async function clipNF(auto) {
+  if (clipBusy) return false; clipBusy = true;
+  try {
+    const t = await navigator.clipboard.readText();
+    if (!looksNF(t)) { if (!auto) rmsg('A área de transferência não tem o texto de uma nota. Na página da nota, selecione tudo, copie e tente de novo.'); return false; }
+    if (auto && t === lastClip) return false;
+    lastClip = t; return applyNFText(t);
+  } catch {
+    if (!auto) { rmsg('Não consegui ler a área de transferência (permissão negada ou indisponível). Cole o texto no campo abaixo.'); $('nfExtra').querySelector('details').open = true; }
+    return false;
+  } finally { clipBusy = false; }
+}
+$('nfClip').onclick = () => clipNF(false);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && $('regDlg').open && regType === 'nf') clipNF(true); });
+addEventListener('focus', () => { if ($('regDlg').open && regType === 'nf') clipNF(true); });
 let pasteTimer = 0;
 $('nfPaste').oninput = e => { clearTimeout(pasteTimer); pasteTimer = setTimeout(() => { if (e.target.value.trim()) applyNFText(e.target.value); }, 400); };
 function readBill(text) {
@@ -305,6 +325,28 @@ function addLow() {
 function edit(id) { const it = st.items.find(i => i.id === id); if (it) openReg('produto', it); }
 
 
+// ---------- Janela "Setores": criar, ordenar, editar e excluir ----------
+function openSectors() { renderSecList(); $('secDlg').showModal(); }
+$('secClose').onclick = () => $('secDlg').close();
+$('secAdd').onclick = async () => {
+  const n = await ask('sector'); if (!n) return;
+  const name = n.name.toUpperCase();
+  if (st.sectors.some(s => s.name === name)) return alert('Já existe um setor com esse nome.');
+  st.sectors.push({ id: slug(name) + '-' + Date.now().toString(36), name, icon: n.icon, color: n.color }); save(st); fillSectors(); refresh();
+};
+function renderSecList() {
+  const box = $('secList'); box.replaceChildren();
+  const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  const b = (txt, title, fn) => { const e = mk('button', '', txt); e.type = 'button'; e.title = title; e.onclick = fn; return e; };
+  st.sectors.forEach(s => {
+    const n = st.items.filter(x => x.sectorId === s.id).length + st.docs.filter(d => d.sectorId === s.id).length, r = mk('div', 'rrow');
+    r.append(mk('span', '', s.icon), mk('strong', '', s.name), mk('span', 'notes', `${n} registro(s)`),
+      b('↑', 'Subir', () => secMove(s.id, -1)), b('↓', 'Descer', () => secMove(s.id, 1)), b('✏️', 'Editar', () => secEdit(s.id)), b('🗑️', 'Excluir', () => secDel(s.id)));
+    box.append(r);
+  });
+  if (!st.sectors.length) box.append(mk('p', 'empty', 'Nenhum setor. Crie o primeiro.'));
+}
+
 // ---------- Setores: reordenar, editar, excluir ----------
 function secMove(id, d) {
   const a = st.sectors, i = a.findIndex(s => s.id === id), j = i + d;
@@ -391,4 +433,4 @@ $('mergeFile').onchange = async e => {
   catch { alert('Arquivo inválido.'); }
 };
 $('dirBtn').onclick = pickDir;
-$('ver').textContent = 'Versão 11 carregada';
+$('ver').textContent = 'Versão 12 carregada';
