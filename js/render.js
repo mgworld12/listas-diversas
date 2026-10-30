@@ -221,7 +221,7 @@ export function renderDocs(st, cb) {
     { h: 'Setor', c: 'ic', always: 1, get: d => { const x = secOf(d); return x ? x.icon : '—'; }, tip: d => { const x = secOf(d); return x ? x.name : 'Sem setor'; } },
     { h: 'Referente a', get: d => d.type === 'nf' ? '' : d.desc || '' },
     { h: 'Valor', c: 'nw num val', always: 1, value: 1 },
-    { h: 'Nota', c: 'nw', link: 1 }
+    { h: 'DANFE', c: 'nw', link: 1 }
   ];
   const cols = all.filter(c => c.always || shown.some(d => c.link ? d.link : c.get(d)));   // colunas sem nenhum dado ficam ocultas
   const t = el('table', 'dtable'), thead = el('thead'), hr = el('tr'), tb = el('tbody'), tot = {};
@@ -239,7 +239,7 @@ export function renderDocs(st, cb) {
           td.append(det);
         }
       } else if (c.value) { td.textContent = money(d.value || 0, cur_(d)); if (!d.value) { td.classList.add('zero'); td.title = 'Sem valor: use ✏️ para informar'; } }
-      else if (c.link) { if (d.link) { const a = el('a', '', 'Abrir nota'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; td.append(a); } }
+      else if (c.link) { if (d.link) { const a = el('a', '', 'Abrir DANFE'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; td.append(a); } }
       else { td.textContent = c.get(d); if (c.tip) td.title = c.tip(d); }
       tr.append(td);
     });

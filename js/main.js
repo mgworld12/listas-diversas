@@ -433,4 +433,4 @@ $('mergeFile').onchange = async e => {
   catch { alert('Arquivo inválido.'); }
 };
 $('dirBtn').onclick = pickDir;
-$('ver').textContent = 'Versão 12 carregada';
+$('ver').textContent = 'Versão 13 carregada';
