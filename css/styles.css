@@ -146,3 +146,12 @@ details.items summary{cursor:pointer;font-weight:600;color:var(--muted)}
 details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
 .reg details.items{margin:8px 0}
 .reg details.items summary{cursor:pointer;font-weight:600}
+
+/* NFs e contas dentro do cartão do setor */
+.secdocs{margin-top:10px;border-top:1px solid var(--line);padding-top:6px}
+.secdocs>summary{cursor:pointer;font-weight:600;font-size:.9rem;margin:4px 0 6px}
+.docrow{border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0}
+.dr1{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
+.docrow button{border:0;background:none;cursor:pointer;padding:2px}
+.docrow .zero{color:#dc2626;font-weight:700}
+.docrow details.items summary{cursor:pointer;font-size:.85rem;color:var(--muted)}
