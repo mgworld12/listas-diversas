@@ -44,6 +44,8 @@
 
   <section id="savedPanel" class="panel" hidden></section>
 
+  <section id="alerts" class="panel noprint" hidden></section>
+
   <div id="sectors" class="sectors"></div>
 
   <section id="syncPanel" class="panel noprint">
@@ -103,6 +105,13 @@
           <div class="field grow"><label for="docValue">Valor:</label><div style="display:flex;gap:6px"><select id="docCur" aria-label="Moeda" style="width:auto"></select><input type="text" id="docValue" inputmode="numeric" placeholder="R$ 0,00" autocomplete="off" style="flex:1;min-width:0"></div></div>
         </div>
         <div id="docDescWrap"><label for="docDesc">A que se refere:</label><input type="text" id="docDesc" maxlength="80" placeholder="Ex.: Conta de luz"></div>
+        <div id="nfExtra" hidden>
+          <details class="paste"><summary>Trazer itens, data e valor da nota (colar o texto da página)</summary>
+            <p class="empty"><a id="nfOpen" href="#" target="_blank" rel="noopener" hidden>1) Abrir a nota no site da Fazenda</a><br>2) Na página da nota, selecione tudo e copie (no computador: Ctrl+A e Ctrl+C).<br>3) Cole aqui:</p>
+            <textarea id="nfPaste" rows="4" placeholder="Cole aqui o texto da página da nota"></textarea>
+          </details>
+        </div>
+        <div id="docItems" hidden></div>
       </div>
       <div id="prodFields" hidden>
         <label for="pName">Produto:</label><input type="text" id="pName" maxlength="80" placeholder="Ex.: Ibuprofeno, Arroz, Caneta">
@@ -115,6 +124,11 @@
           <div class="field grow"><label for="pQty">Quantidade:</label><input type="text" id="pQty" maxlength="40" placeholder="Ex.: 30 comprimidos"></div>
           <div class="field grow"><label for="pPortion">Porção:</label><input type="text" id="pPortion" maxlength="40"></div>
           <div class="field grow"><label for="pVol">Volume:</label><input type="text" id="pVol" maxlength="40" placeholder="Ex.: 500 ml"></div>
+        </div>
+        <div class="row">
+          <div class="field grow"><label for="pStock">Em estoque:</label><input type="number" id="pStock" min="0" step="any" inputmode="decimal"></div>
+          <div class="field grow"><label for="pMin">Estoque mínimo:</label><input type="number" id="pMin" min="0" step="any" inputmode="decimal"></div>
+          <div class="field grow"><label for="pExp">Validade:</label><input type="date" id="pExp"></div>
         </div>
         <label for="pSpecs">Especificações:</label><textarea id="pSpecs" rows="3" maxlength="500" placeholder="Tamanho, onde comprar..."></textarea>
         <label for="imgBtn">Imagem do produto:</label>
