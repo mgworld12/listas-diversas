@@ -155,3 +155,20 @@ details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
 .docrow button{border:0;background:none;cursor:pointer;padding:2px}
 .docrow .zero{color:#dc2626;font-weight:700}
 .docrow details.items summary{cursor:pointer;font-size:.85rem;color:var(--muted)}
+
+/* Barra de setores, tabela de produtos e janela Setores */
+.secbar{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:0 0 16px}
+.secbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid var(--line);border-radius:99px;background:var(--card);color:var(--text);font:inherit;font-weight:600;cursor:pointer}
+.secbtn.on{border-color:var(--sc,var(--primary));background:color-mix(in srgb,var(--sc,var(--primary)) 18%,transparent)}
+.secbtn .n{font-size:.75rem;color:var(--muted);font-weight:400}
+.dtable th.ic,.dtable td.ic{text-align:center;font-size:1.3rem;width:1%}
+.dtable th.chk,.dtable td.chk{width:1%}
+.dtable img.thumb{width:32px;height:32px;vertical-align:middle;margin-right:8px}
+.dtable tr.done .pname{text-decoration:line-through;opacity:.55}
+.dtable .bad{color:#dc2626;font-weight:700}
+.dtable .soon{color:#b45309;font-weight:700}
+.stockc{display:inline-flex;align-items:center;gap:4px}
+.stockc .nn{min-width:1.6em;text-align:center}
+.dtable .acts-a,.dtable td a{text-decoration:none}
+#secList button{border:0;background:none;cursor:pointer;font-size:1rem;padding:2px 4px}
+#nfExtra>.btn{margin:8px 0}
