@@ -31,7 +31,7 @@ export async function lookupCnpj(cnpj) {
 export function parseNF(text) {
   const t = (text || '').trim(), key = (t.replace(/\s/g, '').match(/\d{44}/) || [])[0];
   if (!key) return null;
-  const out = { key, cnpj: key.slice(6, 20), link: /^https?:\/\//i.test(t) ? t : '', date: '', value: '' };
+  const out = { key, cnpj: key.slice(6, 20), link: /^https?:\/\//i.test(t) ? t : '', date: '', value: '', ym: `20${key.slice(2, 4)}-${key.slice(4, 6)}` };
   // NFC-e emitida em contingência traz dia e valor no próprio QR Code
   const p = t.split('p=').pop().split('|');
   if (key[34] === '9' && p.length >= 8 && /^\d{1,2}$/.test(p[3]) && /^\d+(\.\d+)?$/.test(p[4]))
@@ -67,4 +67,44 @@ export function parseBill(text) {
   }
   const v = Number(d.slice(9, 19)) / 100;
   return { type: 'boleto', key: d, store: BANKS[d.slice(0, 3)] || 'Banco ' + d.slice(0, 3), desc: 'Boleto', value: v || '', date: dueDate(Number(d.slice(5, 9))) };
+}
+
+// ---- Texto da página da nota (consulta da Fazenda): estabelecimento, CNPJ, data, valor e itens ----
+// Feito para o formato do Rio de Janeiro ("Dados dos Produtos e Serviços") e, de reserva, o formato "Qtde.: / UN: / Vl. Unit." de outros estados.
+export function parseNFText(raw) {
+  const flat = String(raw || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+  const money = s => Number(String(s).replace(/\./g, '').replace(',', '.'));
+  const qtyN = s => /,/.test(s) ? money(s) : Number(s);
+  const out = { key: '', cnpj: '', store: '', date: '', value: '', items: [] };
+  const k = (flat.match(/Chave de Acesso:? ((?:\d{4} ?){11})/i) || [])[1]; if (k) out.key = k.replace(/\s/g, '');
+  const emit = flat.split(/Dados do Emitente/i)[1] || flat.split(/Emitente/i)[1] || '', sec = emit.split(/Dados do Destinat/i)[0];
+  const c = sec.match(/CNPJ:? (\d{2}\.\d{3}\.\d{3}\/ ?\d{4}- ?\d{2})/i); if (c) out.cnpj = c[1].replace(/\D/g, '');
+  const nf = sec.match(/Nome Fantasia (.*?) CNPJ/i), rs = sec.match(/Nome ?\/ ?Raz[ãa]o Social (.*?) (?:Nome Fantasia|CNPJ)/i);
+  out.store = ((nf && nf[1]) || (rs && rs[1]) || '').trim();
+  const d = flat.match(/Data de Emiss[ãa]o:? (\d{2})\/(\d{2})\/(\d{4})/i); if (d) out.date = `${d[3]}-${d[2]}-${d[1]}`;
+  const v = flat.match(/Valor Total da NF-?e:? (\d{1,3}(?:\.\d{3})*,\d{2})/i) || flat.match(/Valor a pagar R\$:? ?(\d{1,3}(?:\.\d{3})*,\d{2})/i) || flat.match(/Valor Total dos Produtos:? (\d{1,3}(?:\.\d{3})*,\d{2})/i);
+  if (v) out.value = money(v[1]);
+  // Itens, formato RJ: "1 GASOLINA V-POWER 17,8890 LT 100,00 2 AGUA 1,0000 UN 3,50 ..." (a numeração 1, 2, 3... guia a leitura)
+  const tab = (flat.split(/Dados dos Produtos e Servi[çc]os/i)[1] || '').split(/\bTotais\b/)[0].split(/Valor ?\(R\$\)/i).pop();
+  let rest = tab || '';
+  for (let n = 1; n < 500; n++) {
+    const m = rest.match(new RegExp(`(?:^| )${n} (.+?) (\\d+(?:[.,]\\d+)?) ([A-Za-z]{1,4}) (\\d{1,3}(?:\\.\\d{3})*,\\d{2})(?= |$)`));
+    if (!m) break;
+    out.items.push({ name: m[1].trim(), qty: qtyN(m[2]), unit: m[3].toUpperCase(), total: money(m[4]) });
+    rest = rest.slice(m.index + m[0].length);
+  }
+  if (!out.items.length) {   // formato "Item (Código: 123) Qtde.:1 UN: UN Vl. Unit.: 4,99 Vl. Total 4,99"
+    const re = /(.+?) \(Código: ?\d+ ?\) Qtde\.?:? ?([\d.,]+) UN:? ?([A-Za-z]+) Vl\.? ?Unit\.?:? ?([\d.,]+) Vl\.? ?Total:? ?([\d.,]+)/gi;
+    const body = flat.split(/Código de barras|Itens da Nota|Descri[çc][ãa]o/i).pop(); let m;
+    while ((m = re.exec(body))) out.items.push({ name: m[1].trim().split(/ (?=[A-ZÀ-Ú0-9])/).slice(-6).join(' ').trim() || m[1].trim(), qty: qtyN(m[2]), unit: m[3].toUpperCase(), total: money(m[5]) });
+  }
+  return out;
+}
+// Tenta buscar a página da nota (quase sempre o site da Fazenda bloqueia; nesse caso o texto é colado no campo próprio)
+export async function fetchNFPage(url) {
+  const r = await get(url, 7000); if (!r.ok) throw new Error('nf');
+  const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+  doc.querySelectorAll('script,style').forEach(e => e.remove());
+  doc.querySelectorAll('td,th,tr,div,p,br,li,h1,h2,h3,label').forEach(e => e.insertAdjacentText('afterend', ' '));
+  return doc.body ? doc.body.textContent : '';
 }

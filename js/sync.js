@@ -7,6 +7,7 @@ let getSt, onChange, dir = null, wait = null, err = '', timer = 0, bakDone = fal
 // ---------- Juntar os dados de outro arquivo aos atuais ----------
 // Regra: vale a alteração mais recente; o que foi excluído (e não alterado depois) continua excluído.
 export function merge(st, inc) {
+  st.cnpjs = st.cnpjs || {};
   const n = { add: 0, upd: 0, del: 0 }, dead = st.deleted;
   for (const [k, t] of Object.entries(inc.deleted || {})) dead[k] = Math.max(dead[k] || 0, t);
   for (const key of ['items', 'docs', 'saved']) {
@@ -26,6 +27,7 @@ export function merge(st, inc) {
   const col = new Set(st.colors.map(c => c.name)); (inc.colors || []).forEach(c => { if (!col.has(c.name)) st.colors.push(c); });
   Object.assign(st.learn, { ...(inc.learn || {}), ...st.learn });
   Object.assign(st.codes, { ...(inc.codes || {}), ...st.codes });
+  Object.assign(st.cnpjs, { ...(inc.cnpjs || {}), ...st.cnpjs });
   fix(st); return n;
 }
 export function mergeData(d) {
@@ -40,7 +42,7 @@ function build(st) {
   items.forEach(i => { if (i.code && st.codes[i.code]) codes[i.code] = st.codes[i.code]; });
   const deleted = Object.fromEntries(Object.entries(st.deleted).filter(([, t]) => t > since));
   return { kind: 'lote', v: 1, device: st.meta.device, created: Date.now(), sectors: st.sectors, units: st.units, colors: st.colors,
-    learn: st.learn, codes, items, docs: ch(st.docs), saved: ch(st.saved), deleted };
+    learn: st.learn, cnpjs: st.cnpjs, codes, items, docs: ch(st.docs), saved: ch(st.saved), deleted };
 }
 const count = L => L.items.length + L.docs.length + L.saved.length + Object.keys(L.deleted).length;
 
@@ -57,7 +59,7 @@ export async function exportLote(share) {
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     alert(`${count(L)} alteração(ões) salva(s) em ${name} (pasta Downloads). Leve o arquivo ao computador e use "Juntar arquivo".`);
   }
-  st.meta.lastExport = L.created; save(st);
+  st.meta.lastExport = L.created; st.meta.lastBackup = Date.now(); save(st);
 }
 
 // ---------- Pasta do HD (computador) ----------
@@ -94,7 +96,7 @@ async function push() {
       }
     } else bakDone = true;
     replacing = false;
-    await put('casa.json', JSON.stringify(st)); err = '';
+    await put('casa.json', JSON.stringify(st)); err = ''; st.meta.lastBackup = Date.now();
   } catch (e) {
     err = bad(e) ? 'O casa.json da pasta do HD está ilegível; não o sobrescrevi. A cópia casa.bak.json guarda a versão anterior.'
       : 'Não consegui gravar na pasta do HD (ele está conectado?). Os dados continuam salvos neste navegador.';
@@ -109,7 +111,7 @@ export async function saveBackup() {
     clearTimeout(timer); await push();
     return alert(err ? '⚠️ ' + err : 'Backup gravado na pasta do HD: casa.json. A versão que estava lá ao abrir o site fica em casa.bak.json.');
   }
-  const name = exportJSON(getSt());
+  const name = exportJSON(getSt()); getSt().meta.lastBackup = Date.now(); save(getSt());
   alert(`Backup salvo em ${name} (pasta Downloads).` + (hasDir ? ' Conecte a pasta do HD para gravar direto nela, sempre com o mesmo nome.' : ''));
 }
 // Lê o casa.json da pasta do HD (para restaurar ou juntar)
@@ -144,6 +146,10 @@ function status() {
     $('dirRestoreBtn').hidden = !dir;
   }
   if (err) t.push('⚠️ ' + err);
+  const lb = st.meta.lastBackup, days = lb ? Math.floor((Date.now() - lb) / 864e5) : null;   // lembrete de backup
+  if (days === null) t.push('💾 Nenhum backup feito ainda: use "Salvar backup".');
+  else if (days >= 7) t.push(`⚠️ Faz ${days} dias sem backup: use "Salvar backup".`);
+  else t.push(`💾 Último backup: ${new Date(lb).toLocaleDateString('pt-BR')}.`);
   if (!dir && n) t.push(`📤 ${n} alteração(ões) ainda não exportadas para o computador.`);
   $('sync').textContent = t.join(' ');
 }

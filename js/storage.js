@@ -16,7 +16,7 @@ export function fix(st) {
   l.ids = (l.ids || []).filter(has);
   ['prices', 'qtys', 'stores', 'buyUnits'].forEach(k => Object.keys(l[k]).forEach(id => { if (!has(id)) delete l[k][id]; }));
   st.saved = st.saved || []; st.codes = st.codes || {}; st.docs = st.docs || []; st.learn = st.learn || {};
-  st.deleted = st.deleted || {};
+  st.deleted = st.deleted || {}; st.cnpjs = st.cnpjs || {};
   st.meta = st.meta || {}; st.meta.device = st.meta.device || uid(); st.meta.lastExport = st.meta.lastExport || 0;
   st.saved.forEach(s => { s.id = s.id || 'l' + (Date.parse(s.date) || uid()); });
   [...st.items, ...st.docs, ...st.saved].forEach(x => { x.u = x.u || ts(x); });

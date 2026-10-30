@@ -1,3 +1,4 @@
+import { cnpjFmt } from './docs.js';
 // A biblioteca SheetJS é carregada só quando você clica em "Salvar .xlsx"
 const loadLib = () => window.XLSX ? Promise.resolve() : new Promise((ok, err) => {
   const s = document.createElement('script');
@@ -26,4 +27,21 @@ export async function exportXlsx(rows, total, date = new Date()) {
   ws['!cols'] = W.map(wch => ({ wch }));
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Lista');
   XLSX.writeFile(wb, `lista-${date.toISOString().slice(0, 10)}.xlsx`);
+}
+
+// Compras e contas (a lista que está na tela) em .xlsx; os itens das NFs vão numa segunda aba
+export async function exportDocs(docs, sectors, date = new Date()) {
+  if (!docs.length) return alert('Não há registros para exportar.');
+  await loadLib();
+  const sec = id => (sectors.find(s => s.id === id) || {}).name || '';
+  const H = ['Data', 'Tipo', 'Estabelecimento / Instituição', 'CNPJ', 'Setor', 'Referente a', 'Moeda', 'Valor', 'Link da nota'];
+  const rows = docs.map(d => [d.date ? d.date.split('-').reverse().join('/') : '', d.type === 'nf' ? 'NF' : 'Conta', d.store || '', d.cnpj ? cnpjFmt(d.cnpj) : '', sec(d.sectorId), d.type === 'nf' ? '' : d.desc || '', d.currency || 'BRL', d.value || 0, d.link || '']);
+  const tot = {}; docs.forEach(d => { const c = d.currency || 'BRL'; tot[c] = (tot[c] || 0) + (d.value || 0); });
+  const ws = XLSX.utils.aoa_to_sheet([H, ...rows, [], ...Object.entries(tot).map(([c, v]) => ['', '', '', '', '', '', 'Total ' + c, v])]);
+  ws['!cols'] = [12, 8, 34, 20, 16, 24, 8, 14, 40].map(wch => ({ wch }));
+  for (let r = 1; r <= rows.length + 1 + Object.keys(tot).length; r++) { const c = ws['H' + (r + 1)]; if (c && typeof c.v === 'number') c.z = '#,##0.00'; }
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Compras e contas');
+  const items = docs.flatMap(d => (d.items || []).map(i => [d.date ? d.date.split('-').reverse().join('/') : '', d.store || '', i.name, i.qty, i.unit || '', i.total]));
+  if (items.length) { const w2 = XLSX.utils.aoa_to_sheet([['Data', 'Estabelecimento', 'Item', 'Qtd.', 'Un.', 'Valor total'], ...items]); w2['!cols'] = [12, 30, 40, 10, 6, 14].map(wch => ({ wch })); XLSX.utils.book_append_sheet(wb, w2, 'Itens'); }
+  XLSX.writeFile(wb, `compras-e-contas-${date.toISOString().slice(0, 10)}.xlsx`);
 }

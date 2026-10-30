@@ -1,12 +1,12 @@
 import { ICONS, KEYWORDS } from './config.js';
 import { load, save, slug, fix, uid, tomb, importJSON } from './storage.js';
 import { initSync, exportLote, mergeFile, mergeData, pickDir, saveBackup, readDirBackup, safetyCopy } from './sync.js';
-import { render, renderResults, renderList, updateTotals, renderSaved, renderDocs } from './render.js';
-import { exportXlsx, snapshot } from './export.js';
+import { render, renderResults, renderList, updateTotals, renderSaved, renderDocs, stockState, itemLine } from './render.js';
+import { exportXlsx, exportDocs, snapshot } from './export.js';
 import { scanCode, resizeImage, codeFromImage } from './media.js';
-import { lookupProduct, fetchImage, lookupCnpj, parseNF, parseBill, cnpjFmt } from './docs.js';
+import { lookupProduct, fetchImage, lookupCnpj, parseNF, parseNFText, fetchNFPage, parseBill, cnpjFmt } from './docs.js';
 
-let st = await load(); let editing = null; let listMode = false; let searches = []; let auto = false; let image = '';
+let st = await load(); let editing = null; let editingDoc = null; let docItems = []; let listMode = false; let searches = []; let auto = false; let image = '';
 const $ = id => document.getElementById(id);
 const NEW = '__new__';
 const norm = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -59,7 +59,7 @@ $('pName').oninput = e => {
   if (id && st.sectors.some(s => s.id === id)) { $('regSector').value = id; auto = true; }
 };
 
-const cbs = { toggle, edit, remove, select, secMove, secEdit, secDel };
+const cbs = { toggle, edit, remove, select, secMove, secEdit, secDel, stock, addLow };
 const refresh = () => {
   render(st, listMode, cbs);
   renderResults(st, searches, norm, { edit, drop: t => { searches = searches.filter(x => x !== t); refresh(); } });
@@ -67,7 +67,10 @@ const refresh = () => {
     xlsx: i => exportXlsx(st.saved[i].rows, st.saved[i].total, new Date(st.saved[i].date)).catch(xlsxErr),
     del: i => { if (confirm('Excluir esta lista salva?')) { tomb(st, st.saved[i].id); st.saved.splice(i, 1); save(st); refresh(); } }
   });
-  renderDocs(st, { del: id => { if (confirm('Excluir este registro?')) { tomb(st, id); st.docs = st.docs.filter(d => d.id !== id); save(st); refresh(); } } });
+  renderDocs(st, {
+    del: id => { if (confirm('Excluir este registro?')) { tomb(st, id); st.docs = st.docs.filter(d => d.id !== id); save(st); refresh(); } },
+    edit: editDoc, xlsx: list => exportDocs(list, st.sectors).catch(xlsxErr)
+  });
   if (listMode) renderList(st, { price, store, qty, buyUnit });
 };
 
@@ -113,25 +116,49 @@ $('docCur').onchange = e => {
   } else curNow = e.target.value;
   setValue(docVal);
 };
-function openReg(type, it = null) {
-  regType = type; editing = it ? it.id : null; docKey = ''; docLink = ''; auto = false;
+function openReg(type, it = null, doc = null) {
+  regType = type; editing = it ? it.id : null; editingDoc = doc ? doc.id : null; docKey = ''; docLink = ''; docItems = []; auto = false;
   const prod = type === 'produto';
-  $('regTitle').textContent = it ? 'Editar produto' : TITLES[type];
+  $('regTitle').textContent = it ? 'Editar produto' : doc ? 'Editar registro' : TITLES[type];
   $('docFields').hidden = prod; $('prodFields').hidden = !prod; $('regPhoto').hidden = !prod;
   $('docStoreL').textContent = type === 'nf' ? 'Estabelecimento:' : 'Instituição:';
-  $('docDescWrap').hidden = type !== 'conta';
-  $('docDate').required = !prod; $('pName').required = prod;
-  ['regCode', 'docStore', 'docCnpj', 'docValue', 'docDesc', 'pName', 'pMaker', 'pBrand', 'pComp', 'pQty', 'pPortion', 'pVol', 'pSpecs'].forEach(i => $(i).value = '');
-  fillCur('BRL'); docVal = 0; setImage(''); fillSectors(''); rmsg('');
+  $('docDescWrap').hidden = type !== 'conta'; $('nfExtra').hidden = type !== 'nf';
+  $('docDate').required = !prod; $('pName').required = prod; $('docDate').classList.remove('warn');
+  ['regCode', 'docStore', 'docCnpj', 'docValue', 'docDesc', 'nfPaste', 'pName', 'pMaker', 'pBrand', 'pComp', 'pQty', 'pPortion', 'pVol', 'pStock', 'pMin', 'pExp', 'pSpecs'].forEach(i => $(i).value = '');
+  fillCur('BRL'); docVal = 0; setImage(''); fillSectors(''); rmsg(''); renderItemsBox(); showNfExtra();
   $('docDate').value = type === 'nf' ? new Date().toLocaleDateString('sv-SE') : '';
   if (it) {
-    const set = (id, v) => { $(id).value = v || ''; };
+    const set = (id, v) => { $(id).value = v ?? ''; };
     set('regCode', it.code); set('pName', it.name); set('pMaker', it.maker); set('pBrand', it.brand); set('pComp', it.comp);
     set('pQty', it.content); set('pPortion', it.portion); set('pVol', it.volume); set('pSpecs', it.notes);
+    set('pStock', it.stock); set('pMin', it.min); set('pExp', it.expiry);
     fillSectors(it.sectorId); setImage(it.image || '');
   }
-  $('regChoice').hidden = !!it; $('regBody').hidden = !it; $('regSave').hidden = !it;
+  if (doc) {
+    docKey = doc.key || ''; docLink = doc.link || ''; docItems = (doc.items || []).map(i => ({ ...i }));
+    $('regCode').value = doc.key || ''; $('docStore').value = doc.store || ''; $('docCnpj').value = doc.cnpj ? maskCnpj(doc.cnpj) : ''; $('docDesc').value = doc.desc || '';
+    fillCur(doc.currency || 'BRL'); setValue(doc.value || 0); $('docDate').value = doc.date || ''; fillSectors(doc.sectorId || '');
+    renderItemsBox(); showNfExtra();
+  }
+  const ready = !!(it || doc);   // edição abre direto nos campos
+  $('regChoice').hidden = ready; $('regBody').hidden = !ready; $('regSave').hidden = !ready;
   $('regDlg').returnValue = ''; $('regDlg').showModal();
+}
+// Itens da compra: recolhidos, abrem e fecham na setinha
+function renderItemsBox() {
+  const b = $('docItems'); b.replaceChildren(); b.hidden = !docItems.length; if (!docItems.length) return;
+  const det = document.createElement('details'), sum = document.createElement('summary'); det.className = 'items'; sum.textContent = `Itens da compra (${docItems.length})`; det.append(sum);
+  docItems.forEach(i => { const p = document.createElement('div'); p.className = 'notes'; p.textContent = itemLine(i, $('docCur').value || 'BRL'); det.append(p); });
+  b.append(det);
+}
+function showNfExtra() { $('nfOpen').hidden = !docLink; $('nfOpen').href = docLink || '#'; }
+function setDocDate(iso, approx) { $('docDate').value = iso; $('docDate').classList.toggle('warn', !!approx); }
+$('docDate').oninput = $('docDate').onchange = () => $('docDate').classList.remove('warn');
+function editDoc(id) { const d = st.docs.find(x => x.id === id); if (d) openReg(d.type, null, d); }
+// Nome do estabelecimento pelo CNPJ: fica guardado depois da primeira consulta (e vale também sem internet)
+async function storeName(cnpj) {
+  if (st.cnpjs[cnpj]) return st.cnpjs[cnpj];
+  const n = await lookupCnpj(cnpj); if (n) { st.cnpjs[cnpj] = n; save(st); } return n;
 }
 $('nfBtn').onclick = () => openReg('nf');
 $('billBtn').onclick = () => openReg('conta');
@@ -148,18 +175,43 @@ function readCode(text) {
   return regType === 'nf' ? readNF(text) : regType === 'conta' ? readBill(text) : readProduct(text);
 }
 async function readNF(text) {
+  if (text.length > 300 && /Dados dos Produtos|Chave de Acesso|Valor Total/i.test(text)) { $('regCode').value = ''; return applyNFText(text); }   // página inteira colada no campo do código
   const r = parseNF(text);
   if (!r) { const n = text.replace(/\D/g, '').length; return rmsg(n && n < 44 && !/^https?:/i.test(text) ? `A chave da nota tem 44 números; faltam ${44 - n}.` : 'Não encontrei a chave de acesso (44 dígitos) neste código.'); }
-  if (st.docs.some(d => d.key === r.key)) return rmsg('Esta nota já foi cadastrada.');
-  docKey = r.key; docLink = r.link; $('docCnpj').value = maskCnpj(r.cnpj);
-  if (r.date) $('docDate').value = r.date;
+  if (st.docs.some(d => d.key === r.key && d.id !== editingDoc)) return rmsg('Esta nota já foi cadastrada.');
+  docKey = r.key; docLink = r.link; $('docCnpj').value = maskCnpj(r.cnpj); showNfExtra();
+  if (r.date) setDocDate(r.date, false);
+  else {   // a chave só informa o mês e o ano da emissão: o dia precisa ser conferido
+    const [y, m] = r.ym.split('-').map(Number), now = new Date(), same = now.getFullYear() === y && now.getMonth() + 1 === m;
+    setDocDate(same ? now.toLocaleDateString('sv-SE') : `${y}-${String(m).padStart(2, '0')}-01`, true);
+  }
   if (r.value) { fillCur('BRL'); setValue(r.value); }
   rmsg('Nota lida. Buscando o estabelecimento pelo CNPJ...');
-  try {
-    const n = await lookupCnpj(r.cnpj); if (n && !$('docStore').value) $('docStore').value = autoStore = n;
-    rmsg(r.value ? 'Nota lida. Confira os dados.' : 'Nota lida. Confira a data e informe o valor.');
-  } catch { rmsg('Nota lida, mas não achei o estabelecimento na internet. Digite o nome e o valor.'); }
+  let tip = r.value ? 'Nota lida. Confira os dados.' : 'Nota lida. Informe o valor.';
+  try { const n = await storeName(r.cnpj); if (n && !$('docStore').value) $('docStore').value = autoStore = n; }
+  catch { tip = 'Nota lida, mas não achei o estabelecimento na internet. Digite o nome.'; }
+  rmsg(tip + (r.date ? '' : ' A nota só informa o mês: confira o dia (campo destacado).') + ' Para trazer itens e valor, use "colar o texto da página".');
+  if (r.link) fetchNFPage(r.link).then(tx => { if (tx && docKey === r.key) applyNFText(tx, true); }).catch(() => {});   // quase sempre o site da Fazenda bloqueia; então o texto é colado
 }
+// Preenche tudo o que a página da nota traz: estabelecimento, CNPJ, data, valor e itens
+function applyNFText(text, quiet = false) {
+  const r = parseNFText(text);
+  if (!r.items.length && !r.value && !r.store) { if (!quiet) rmsg('Não reconheci os dados da nota nesse texto. Copie a página inteira da nota e cole de novo.'); return false; }
+  if (r.key) {
+    if (st.docs.some(d => d.key === r.key && d.id !== editingDoc)) { rmsg('Esta nota já foi cadastrada.'); return false; }
+    docKey = r.key; $('regCode').value = r.key;
+  }
+  if (r.cnpj) { $('docCnpj').value = maskCnpj(r.cnpj); if (r.store) st.cnpjs[r.cnpj] = r.store; }
+  const cur = () => $('docStore').value.trim();
+  if (r.store && (!cur() || cur() === autoStore)) $('docStore').value = autoStore = r.store;
+  if (r.date) setDocDate(r.date, false);
+  if (r.value) { fillCur('BRL'); setValue(r.value); }
+  docItems = r.items; renderItemsBox(); showNfExtra();
+  rmsg(`Nota lida: ${r.items.length} item(ns)${r.value ? '' : '. Informe o valor'}. Confira os dados.`);
+  return true;
+}
+let pasteTimer = 0;
+$('nfPaste').oninput = e => { clearTimeout(pasteTimer); pasteTimer = setTimeout(() => { if (e.target.value.trim()) applyNFText(e.target.value); }, 400); };
 function readBill(text) {
   const r = parseBill(text);
   if (!r) { const n = text.replace(/\D/g, '').length; return rmsg(n && n < 44 && !text.startsWith('000201') ? '' : 'Código não reconhecido. Use o código de barras do boleto ou da conta (44 a 48 dígitos) ou o QR Code do Pix.'); }
@@ -204,7 +256,7 @@ $('docCnpj').oninput = async e => {
   if (d.length !== 14 || (cur() && cur() !== autoStore)) return;
   rmsg('Buscando o estabelecimento pelo CNPJ...');
   try {
-    const n = await lookupCnpj(d);
+    const n = await storeName(d);
     if ($('docCnpj').value.replace(/\D/g, '') !== d || (cur() && cur() !== autoStore)) return;
     if (n) { $('docStore').value = autoStore = n; rmsg('Estabelecimento encontrado pelo CNPJ. Confira o nome.'); }
     else rmsg('CNPJ não encontrado. Digite o nome.');
@@ -221,14 +273,19 @@ $('regForm').onsubmit = e => {
   save(st); refresh(); $('regDlg').close('ok');
 };
 function saveDoc(sectorId) {
-  const d = { id: uid(), u: Date.now(), type: regType, sectorId, store: $('docStore').value.trim(), cnpj: $('docCnpj').value.replace(/\D/g, ''), date: $('docDate').value,
-    value: docVal || 0, currency: $('docCur').value, desc: $('docDesc').value.trim(), key: docKey, link: docLink };
-  if (d.key && st.docs.some(x => x.key === d.key)) { alert('Este documento já foi cadastrado.'); return false; }
-  st.docs.push(d); return true;
+  const cnpj = $('docCnpj').value.replace(/\D/g, ''), store = $('docStore').value.trim();
+  if (!docVal && !confirm('O valor está zerado. Salvar assim mesmo?\n\nVocê pode editar o registro depois (✏️).')) return false;
+  const data = { type: regType, sectorId, store, cnpj, date: $('docDate').value, value: docVal || 0, currency: $('docCur').value, desc: $('docDesc').value.trim(), key: docKey, link: docLink, items: docItems };
+  if (data.key && st.docs.some(x => x.key === data.key && x.id !== editingDoc)) { alert('Este documento já foi cadastrado.'); return false; }
+  if (cnpj.length === 14 && store) st.cnpjs[cnpj] = store;
+  const old = editingDoc && st.docs.find(x => x.id === editingDoc);
+  if (old) Object.assign(old, data, { u: Date.now() }); else st.docs.push({ id: uid(), u: Date.now(), ...data });
+  return true;
 }
 function saveProduct(sectorId) {
-  const g = id => $(id).value.trim();
-  const data = { name: g('pName'), sectorId, code: g('regCode'), maker: g('pMaker'), brand: g('pBrand'), comp: g('pComp'), content: g('pQty'), portion: g('pPortion'), volume: g('pVol'), notes: g('pSpecs'), image };
+  const g = id => $(id).value.trim(), n = id => $(id).value === '' ? '' : Number($(id).value);
+  const data = { name: g('pName'), sectorId, code: g('regCode'), maker: g('pMaker'), brand: g('pBrand'), comp: g('pComp'), content: g('pQty'), portion: g('pPortion'), volume: g('pVol'),
+    stock: n('pStock'), min: n('pMin'), expiry: $('pExp').value, notes: g('pSpecs'), image };
   if (!editing && st.items.some(i => i.sectorId === sectorId && norm(i.name) === norm(data.name)) &&
       !confirm('Já existe um item com esse nome neste setor. Adicionar mesmo assim?')) return false;
   if (data.code && st.items.some(i => i.code === data.code && i.id !== editing)) { alert('Já existe um produto com esse código.'); return false; }
@@ -237,6 +294,13 @@ function saveProduct(sectorId) {
   if (editing) Object.assign(st.items.find(i => i.id === editing), data, { u: Date.now() });
   else st.items.push({ id: uid(), u: Date.now(), done: false, qty: '', unit: '', color: null, ...data });
   return true;
+}
+// Estoque: botões − e + no cartão; "estoque baixo" vai direto para a lista de compras
+function stock(id, d) { const it = st.items.find(i => i.id === id); if (!it) return; it.stock = Math.max(0, (Number(it.stock) || 0) + d); it.u = Date.now(); save(st); refresh(); }
+function addLow() {
+  const ids = st.items.filter(i => stockState(i).low).map(i => i.id); if (!ids.length) return;
+  if (!listMode) $('listMode').click();
+  ids.forEach(id => { if (!st.list.ids.includes(id)) st.list.ids.push(id); }); save(st); refresh();
 }
 function edit(id) { const it = st.items.find(i => i.id === id); if (it) openReg('produto', it); }
 
@@ -327,4 +391,4 @@ $('mergeFile').onchange = async e => {
   catch { alert('Arquivo inválido.'); }
 };
 $('dirBtn').onclick = pickDir;
-$('ver').textContent = 'Versão 9 carregada';
+$('ver').textContent = 'Versão 10 carregada';
