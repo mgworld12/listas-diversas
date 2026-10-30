@@ -161,7 +161,8 @@ details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
 .secbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid var(--line);border-radius:99px;background:var(--card);color:var(--text);font:inherit;font-weight:600;cursor:pointer}
 .secbtn.on{border-color:var(--sc,var(--primary));background:color-mix(in srgb,var(--sc,var(--primary)) 18%,transparent)}
 .secbtn .n{font-size:.75rem;color:var(--muted);font-weight:400}
-.dtable th.ic,.dtable td.ic{text-align:center;font-size:1.3rem;width:1%}
+.dtable th.ic,.dtable td.ic{text-align:center;width:1%}
+.dtable td.ic{font-size:1.3rem}
 .dtable th.chk,.dtable td.chk{width:1%}
 .dtable img.thumb{width:32px;height:32px;vertical-align:middle;margin-right:8px}
 .dtable tr.done .pname{text-decoration:line-through;opacity:.55}
