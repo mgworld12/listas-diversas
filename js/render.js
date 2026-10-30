@@ -20,19 +20,46 @@ export function stockState(it) {
 export const itemLine = (i, cur = 'BRL') => [i.name, i.qty != null && i.qty !== '' ? `${Number(i.qty).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} ${i.unit || ''}`.trim() : '', i.total != null && i.total !== '' ? money(Number(i.total), cur) : ''].filter(Boolean).join(' • ');
 export const info = it => [[it.qty, it.unit].filter(Boolean).join(' '), it.brand, it.content, it.volume].filter(Boolean).join(' • ');
 
+// NFs e contas do setor, dentro do cartão do setor (recolhível; a posição aberta/fechada é lembrada)
+const openSec = new Map();
+const byDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '');
+function docsBlock(sec, docs, cb) {
+  const tot = {}; docs.forEach(d => { const c = d.currency || 'BRL'; tot[c] = (tot[c] || 0) + (d.value || 0); });
+  const det = el('details', 'secdocs'), st0 = openSec.get(sec.id); det.open = st0 === undefined ? docs.length <= 5 : st0;
+  det.append(el('summary', '', `🧾 Compras e contas (${docs.length}) • ${Object.entries(tot).sort(([a], [b]) => a === 'BRL' ? -1 : b === 'BRL' ? 1 : a.localeCompare(b)).map(([c, v]) => money(v, c)).join(' + ')}`));
+  det.ontoggle = () => openSec.set(sec.id, det.open);
+  docs.forEach(d => {
+    const cur = d.currency || 'BRL', row = el('div', 'docrow'), l1 = el('div', 'dr1');
+    l1.append(el('span', 'rs', (d.type === 'nf' ? '🧾 ' : '💡 ') + (d.date ? d.date.split('-').reverse().join('/') : '')), el('strong', '', d.store || d.desc || '—'),
+      btn('✏️', 'Editar', () => cb.docEdit(d.id)), btn('🗑️', 'Excluir', () => cb.docDel(d.id)));
+    row.append(l1);
+    const l2 = el('div', 'notes'); l2.append([d.cnpj ? 'CNPJ ' + cnpjFmt(d.cnpj) : '', d.type === 'conta' ? d.desc : ''].filter(Boolean).join(' • ') + ((d.cnpj || (d.type === 'conta' && d.desc)) ? ' • ' : ''));
+    const v = el('span', d.value ? '' : 'zero', money(d.value || 0, cur)); if (!d.value) v.title = 'Sem valor: use ✏️ para informar';
+    l2.append(v);
+    if (d.link) { const a = el('a', '', 'Abrir nota'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; l2.append(' • ', a); }
+    row.append(l2);
+    if (d.items && d.items.length) {   // itens da compra: recolhidos, abrem na setinha
+      const it = el('details', 'items'); it.append(el('summary', '', `Itens (${d.items.length})`));
+      d.items.forEach(i => it.append(el('div', 'notes', itemLine(i, cur)))); row.append(it);
+    }
+    det.append(row);
+  });
+  return det;
+}
 export function render(st, listMode, cb) {
   renderAlerts(st, cb);
   const box = document.getElementById('sectors'); box.replaceChildren();
   st.sectors.forEach(sec => {
-    const items = st.items.filter(i => i.sectorId === sec.id).sort((a, b) => a.done - b.done);
+    const items = st.items.filter(i => i.sectorId === sec.id).sort((a, b) => a.done - b.done), docs = st.docs.filter(d => d.sectorId === sec.id).sort(byDateDesc);
     const card = el('section', 'sector'); card.style.setProperty('--sc', sec.color);
     const head = el('header', 'sector-head'), acts = el('div', 'acts');
     acts.append(btn('◀', 'Mover para trás', () => cb.secMove(sec.id, -1), 'mv'), btn('▶', 'Mover para frente', () => cb.secMove(sec.id, 1), 'mv'),
       btn('✏️', 'Editar setor', () => cb.secEdit(sec.id)), btn('🗑️', 'Excluir setor', () => cb.secDel(sec.id)));
-    head.append(el('span', 'logo', sec.icon), el('h2', '', sec.name), acts, el('span', 'count', items.length));
+    head.append(el('span', 'logo', sec.icon), el('h2', '', sec.name), acts, el('span', 'count', items.length + docs.length));
     card.append(head);
-    if (!items.length) card.append(el('p', 'empty', 'Nenhum item neste setor.'));
+    if (!items.length && !docs.length) card.append(el('p', 'empty', 'Nenhum item neste setor.'));
     items.forEach(it => card.append(itemCard(it, st, listMode, cb)));
+    if (docs.length) card.append(docsBlock(sec, docs, cb));
     box.append(card);
   });
 }
@@ -192,7 +219,7 @@ export function renderDocs(st, cb) {
     (!q || nz([d.store, d.cnpj, d.cnpj ? cnpjFmt(d.cnpj) : '', d.desc].join(' ')).includes(q)));
   body.replaceChildren(resumo(st));
   if (!shown.length) return body.append(el('p', 'empty', 'Nenhum registro neste filtro.'));
-  const secOf = d => { const x = st.sectors.find(y => y.id === d.sectorId); return x ? `${x.icon} ${x.name}` : ''; };
+  const secOf = d => { const x = st.sectors.find(y => y.id === d.sectorId); return x ? `${x.icon} ${x.name}` : 'Sem setor'; };
   const all = [
     { h: 'Data', c: 'nw', always: 1, get: d => (d.type === 'nf' ? '🧾 ' : '💡 ') + (d.date ? d.date.split('-').reverse().join('/') : '') },
     { h: 'Estabelecimento', always: 1, name: 1 },

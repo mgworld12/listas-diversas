@@ -59,7 +59,7 @@ $('pName').oninput = e => {
   if (id && st.sectors.some(s => s.id === id)) { $('regSector').value = id; auto = true; }
 };
 
-const cbs = { toggle, edit, remove, select, secMove, secEdit, secDel, stock, addLow };
+const cbs = { toggle, edit, remove, select, secMove, secEdit, secDel, stock, addLow, docEdit: editDoc, docDel: delDoc };
 const refresh = () => {
   render(st, listMode, cbs);
   renderResults(st, searches, norm, { edit, drop: t => { searches = searches.filter(x => x !== t); refresh(); } });
@@ -68,8 +68,7 @@ const refresh = () => {
     del: i => { if (confirm('Excluir esta lista salva?')) { tomb(st, st.saved[i].id); st.saved.splice(i, 1); save(st); refresh(); } }
   });
   renderDocs(st, {
-    del: id => { if (confirm('Excluir este registro?')) { tomb(st, id); st.docs = st.docs.filter(d => d.id !== id); save(st); refresh(); } },
-    edit: editDoc, xlsx: list => exportDocs(list, st.sectors).catch(xlsxErr)
+    del: delDoc, edit: editDoc, xlsx: list => exportDocs(list, st.sectors).catch(xlsxErr)
   });
   if (listMode) renderList(st, { price, store, qty, buyUnit });
 };
@@ -154,6 +153,7 @@ function renderItemsBox() {
 function showNfExtra() { $('nfOpen').hidden = !docLink; $('nfOpen').href = docLink || '#'; }
 function setDocDate(iso, approx) { $('docDate').value = iso; $('docDate').classList.toggle('warn', !!approx); }
 $('docDate').oninput = $('docDate').onchange = () => $('docDate').classList.remove('warn');
+function delDoc(id) { if (confirm('Excluir este registro?')) { tomb(st, id); st.docs = st.docs.filter(d => d.id !== id); save(st); refresh(); } }
 function editDoc(id) { const d = st.docs.find(x => x.id === id); if (d) openReg(d.type, null, d); }
 // Nome do estabelecimento pelo CNPJ: fica guardado depois da primeira consulta (e vale também sem internet)
 async function storeName(cnpj) {
@@ -391,4 +391,4 @@ $('mergeFile').onchange = async e => {
   catch { alert('Arquivo inválido.'); }
 };
 $('dirBtn').onclick = pickDir;
-$('ver').textContent = 'Versão 10 carregada';
+$('ver').textContent = 'Versão 11 carregada';
