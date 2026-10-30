@@ -128,3 +128,21 @@ details.items summary{cursor:pointer;font-weight:600;color:var(--muted)}
   .dtable td{border:0;padding:3px 6px;text-align:left;white-space:normal}
   .dtable td[data-l]::before{content:attr(data-l);display:block;font-size:.75rem;color:var(--muted)}
 }
+
+/* Filtros, resumo, estoque, alertas e leitura da nota */
+.warn{outline:2px solid #f59e0b;outline-offset:1px}
+.dtable td.zero{color:#dc2626;font-weight:700}
+.docbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px}
+.docbar select,.docbar input{width:auto;flex:0 1 220px}
+.resumo{margin:0 0 12px}.resumo summary{cursor:pointer;font-weight:600}
+.stable{border-collapse:collapse;margin:8px 0 12px;min-width:260px}
+.stable th,.stable td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.stable th{font-size:.8rem;color:var(--muted)}
+.stable .val{text-align:right}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.tag{font-size:.75rem;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.tag.bad{border-color:#dc2626;color:#dc2626}
+.tag.warn{border-color:#f59e0b;color:#b45309;outline:none}
+details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
+.reg details.items{margin:8px 0}
+.reg details.items summary{cursor:pointer;font-weight:600}
