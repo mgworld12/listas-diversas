@@ -158,7 +158,7 @@ details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
 
 /* Barra de setores, tabela de produtos e janela Setores */
 .secbar{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:0 0 16px}
-.secbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid var(--line);border-radius:99px;background:var(--card);color:var(--text);font:inherit;font-weight:600;cursor:pointer}
+.secbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid var(--sc,var(--line));border-radius:99px;background:var(--card);color:var(--text);font:inherit;font-weight:600;cursor:pointer}
 .secbtn.on{border-color:var(--sc,var(--primary));background:color-mix(in srgb,var(--sc,var(--primary)) 18%,transparent)}
 .secbtn .n{font-size:.75rem;color:var(--muted);font-weight:400}
 .dtable th.ic,.dtable td.ic{text-align:center;width:1%}
@@ -173,3 +173,12 @@ details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
 .dtable .acts-a,.dtable td a{text-decoration:none}
 #secList button{border:0;background:none;cursor:pointer;font-size:1rem;padding:2px 4px}
 #nfExtra>.btn{margin:8px 0}
+
+/* Contorno do setor nos botões e marca na cor do setor nas linhas */
+.secbtn:hover{background:color-mix(in srgb,var(--sc,var(--primary)) 14%,transparent)}
+.dtable tbody tr td:first-child{border-left:5px solid var(--sc,transparent)}
+#docKindWrap select{margin-bottom:8px}
+@media (max-width:700px){
+  .dtable tbody tr{border-left:5px solid var(--sc,var(--line))}
+  .dtable tbody tr td:first-child{border-left:0}
+}
