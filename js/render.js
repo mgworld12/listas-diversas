@@ -1,4 +1,4 @@
-import { BUY_UNITS } from './config.js';
+import { BUY_UNITS, CONTA_TIPOS } from './config.js';
 import { cnpjFmt } from './docs.js';
 // Usa textContent (nunca innerHTML) para evitar injeção de código.
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
@@ -22,6 +22,12 @@ export const info = it => [[it.qty, it.unit].filter(Boolean).join(' '), it.brand
 
 // ---------- Barra de setores (filtro) e tabela de produtos ----------
 const SEC = { id: '' };   // setor escolhido na barra: filtra a tabela de produtos e a de compras e contas
+// Tipo da conta: ícone + nome (+ 4 últimos números do cartão) + descrição
+export const contaTxt = d => {
+  if (d.type === 'nf') return '';
+  const k = CONTA_TIPOS[d.kind];
+  return [k ? `${k.icon} ${k.label}${d.kind === 'cartao' && d.card ? ' •••• ' + d.card : ''}` : '', d.desc].filter(Boolean).join(' • ');
+};
 const qtyInfo = it => [[it.qty, it.unit].filter(Boolean).join(' '), it.content, it.volume].filter(Boolean).join(' • ');
 function renderSecBar(st, cb) {
   const bar = document.getElementById('secbar'); bar.replaceChildren();
@@ -53,7 +59,7 @@ function renderProducts(st, listMode, cb) {
   const t = el('table', 'dtable'), thead = el('thead'), hr = el('tr'), tb = el('tbody');
   cols.forEach(c => hr.append(el('th', c.c || '', c.h))); thead.append(hr);
   items.forEach(it => {
-    const tr = el('tr', it.done && !listMode ? 'done' : ''), S = stockState(it);
+    const tr = el('tr', it.done && !listMode ? 'done' : ''), S = stockState(it), sc = secOf(it); if (sc) tr.style.setProperty('--sc', sc.color);   // marca na cor do setor
     cols.forEach(c => {
       const td = el('td', c.c || ''); if (c.h) td.dataset.l = c.h;
       if (c.chk) {
@@ -215,12 +221,12 @@ export function renderDocs(st, cb) {
   if (!shown.length) return body.append(el('p', 'empty', 'Nenhum registro neste filtro.'));
   const secOf = d => st.sectors.find(y => y.id === d.sectorId);
   const all = [
-    { h: 'Data', c: 'nw', always: 1, get: d => (d.type === 'nf' ? '🧾 ' : '💡 ') + (d.date ? d.date.split('-').reverse().join('/') : '') },
     { h: 'Estabelecimento', always: 1, name: 1 },
     { h: 'CNPJ', c: 'nw num', get: d => d.cnpj ? cnpjFmt(d.cnpj) : '' },
     { h: 'Setor', c: 'ic', always: 1, get: d => { const x = secOf(d); return x ? x.icon : '—'; }, tip: d => { const x = secOf(d); return x ? x.name : 'Sem setor'; } },
-    { h: 'Referente a', get: d => d.type === 'nf' ? '' : d.desc || '' },
+    { h: 'Referente a', get: d => contaTxt(d) },
     { h: 'Valor', c: 'nw num val', always: 1, value: 1 },
+    { h: 'Data', c: 'nw', always: 1, get: d => d.date ? d.date.split('-').reverse().join('/') : '' },
     { h: 'DANFE', c: 'nw', link: 1 }
   ];
   const cols = all.filter(c => c.always || shown.some(d => c.link ? d.link : c.get(d)));   // colunas sem nenhum dado ficam ocultas
@@ -228,7 +234,7 @@ export function renderDocs(st, cb) {
   cols.forEach(c => hr.append(el('th', c.c || '', c.h))); thead.append(hr);
   shown.forEach(d => {
     tot[cur_(d)] = (tot[cur_(d)] || 0) + (d.value || 0);
-    const tr = el('tr');
+    const tr = el('tr'), sc = secOf(d); if (sc) tr.style.setProperty('--sc', sc.color);   // marca na cor do setor
     cols.forEach(c => {
       const td = el('td', c.c || ''); td.dataset.l = c.h;
       if (c.name) {   // lápis e lixeira ficam ao lado do nome do estabelecimento
@@ -239,7 +245,7 @@ export function renderDocs(st, cb) {
           td.append(det);
         }
       } else if (c.value) { td.textContent = money(d.value || 0, cur_(d)); if (!d.value) { td.classList.add('zero'); td.title = 'Sem valor: use ✏️ para informar'; } }
-      else if (c.link) { if (d.link) { const a = el('a', '', 'Abrir DANFE'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; td.append(a); } }
+      else if (c.link) { if (d.link) { const a = el('a', '', 'DANFE'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; td.append(a); } }
       else { td.textContent = c.get(d); if (c.tip) td.title = c.tip(d); }
       tr.append(td);
     });

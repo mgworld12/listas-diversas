@@ -21,3 +21,13 @@ export const KEYWORDS = {
 };
 // Tipo da quantidade a comprar (na lista)
 export const BUY_UNITS = ['unidade(s)', 'caixa(s)', 'pacote(s)', 'frasco(s)', 'dúzia(s)', 'Kg', 'Lt.'];
+// Tipos de conta (ícone e nome); vazio = outra conta
+export const CONTA_TIPOS = {
+  gas: { icon: '🔥', label: 'Gás' },
+  energia: { icon: '⚡', label: 'Energia' },
+  condominio: { icon: '🏢', label: 'Condomínio' },
+  agua: { icon: '💧', label: 'Água' },
+  cartao: { icon: '💳', label: 'Cartão de crédito' },
+  pix: { icon: '💠', label: 'Pix' },
+  loteria: { icon: '🍀', label: 'Loterias' }
+};

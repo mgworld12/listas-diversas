@@ -55,7 +55,7 @@ export function parseBill(text) {
   const t = (text || '').trim();
   if (t.startsWith('000201')) {   // Pix (QR Code)
     const o = tlv(t), x = o['62'] ? tlv(o['62']) : {};
-    return { type: 'pix', key: '', store: o['59'] || '', desc: x['05'] && x['05'] !== '***' ? x['05'] : 'Pix', value: o['54'] ? Number(o['54']) : '', date: '' };
+    return { type: 'pix', kind: 'pix', key: '', store: o['59'] || '', desc: x['05'] && x['05'] !== '***' ? x['05'] : '', value: o['54'] ? Number(o['54']) : '', date: '' };
   }
   let d = dig(t);
   if (d.length === 47) d = d.slice(0, 4) + d[32] + d.slice(33) + d.slice(4, 9) + d.slice(10, 20) + d.slice(21, 31);
@@ -63,10 +63,10 @@ export function parseBill(text) {
   if (d.length !== 44) return null;
   if (d[0] === '8') {   // conta de consumo (água, luz, telefone...)
     const seg = SEG[d[1]] || 'Conta de consumo';
-    return { type: 'consumo', key: d, store: '', desc: seg, value: '67'.includes(d[2]) ? Number(d.slice(4, 15)) / 100 : '', date: '' };
+    return { type: 'consumo', kind: d[1] === '2' ? 'agua' : d[1] === '3' ? 'energia' : '', key: d, store: '', desc: seg, value: '67'.includes(d[2]) ? Number(d.slice(4, 15)) / 100 : '', date: '' };
   }
   const v = Number(d.slice(9, 19)) / 100;
-  return { type: 'boleto', key: d, store: BANKS[d.slice(0, 3)] || 'Banco ' + d.slice(0, 3), desc: 'Boleto', value: v || '', date: dueDate(Number(d.slice(5, 9))) };
+  return { type: 'boleto', kind: '', key: d, store: BANKS[d.slice(0, 3)] || 'Banco ' + d.slice(0, 3), desc: 'Boleto', value: v || '', date: dueDate(Number(d.slice(5, 9))) };
 }
 
 // ---- Texto da página da nota (consulta da Fazenda): estabelecimento, CNPJ, data, valor e itens ----
