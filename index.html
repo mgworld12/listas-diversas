@@ -111,6 +111,11 @@
           <div class="field grow"><label for="docDate">Data:</label><input type="date" id="docDate"></div>
           <div class="field grow"><label for="docValue">Valor:</label><div style="display:flex;gap:6px"><select id="docCur" aria-label="Moeda" style="width:auto"></select><input type="text" id="docValue" inputmode="numeric" placeholder="R$ 0,00" autocomplete="off" style="flex:1;min-width:0"></div></div>
         </div>
+        <div id="docKindWrap">
+          <label for="docKind">Tipo da conta:</label>
+          <select id="docKind"></select>
+          <div id="docCardWrap" hidden><label for="docCard">Cartão: 4 últimos números</label><input type="text" id="docCard" maxlength="4" inputmode="numeric" placeholder="0000" autocomplete="off"></div>
+        </div>
         <div id="docDescWrap"><label for="docDesc">A que se refere:</label><input type="text" id="docDesc" maxlength="80" placeholder="Ex.: Conta de luz"></div>
         <div id="nfExtra" hidden>
           <button type="button" id="nfClip" class="btn">📋 Colar da área de transferência</button>
