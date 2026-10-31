@@ -1,12 +1,13 @@
 import { ICONS, KEYWORDS, CONTA_TIPOS } from './config.js';
-import { load, save, slug, fix, uid, tomb, importJSON } from './storage.js';
-import { initSync, exportLote, mergeFile, mergeData, pickDir, saveBackup, readDirBackup, safetyCopy } from './sync.js';
+import { load, save, slug, fix, uid, tomb, importJSON, docFps, itemFps } from './storage.js';
+import { initSync, exportLote, mergeFile, mergeData, dedupe, pickDir, saveBackup, readDirBackup, safetyCopy } from './sync.js';
 import { render, renderResults, renderList, updateTotals, renderSaved, renderDocs, stockState, itemLine } from './render.js';
 import { exportXlsx, exportDocs, snapshot } from './export.js';
 import { scanCode, resizeImage, codeFromImage } from './media.js';
 import { lookupProduct, fetchImage, lookupCnpj, parseNF, parseNFText, fetchNFPage, parseBill, cnpjFmt } from './docs.js';
 
-let st = await load(); let editing = null; let editingDoc = null; let docItems = []; let listMode = false; let searches = []; let auto = false; let image = '';
+let st = await load(); { const dd = dedupe(st); if (dd) { save(st); setTimeout(() => alert(`${dd} registro(s) duplicado(s) foram unificados.`), 600); } }
+let editing = null; let editingDoc = null; let docItems = []; let listMode = false; let searches = []; let auto = false; let image = '';
 const $ = id => document.getElementById(id);
 const NEW = '__new__';
 const norm = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -313,7 +314,11 @@ function saveDoc(sectorId) {
   if (!docVal && !confirm('O valor está zerado. Salvar assim mesmo?\n\nVocê pode editar o registro depois (✏️).')) return false;
   const data = { type: regType, sectorId, store, cnpj, date: $('docDate').value, value: docVal || 0, currency: $('docCur').value, desc: $('docDesc').value.trim(), key: docKey, link: docLink, items: docItems,
     kind: regType === 'conta' ? $('docKind').value : '', card: regType === 'conta' && $('docKind').value === 'cartao' ? $('docCard').value.replace(/\D/g, '').slice(-4) : '' };
-  if (data.key && st.docs.some(x => x.key === data.key && x.id !== editingDoc)) { alert('Este documento já foi cadastrado.'); return false; }
+  const fps = docFps(data), twin = st.docs.find(x => x.id !== editingDoc && docFps(x).some(f => fps.includes(f)));
+  if (twin) {
+    alert(`Já existe um registro igual: ${twin.store || twin.desc || 'sem nome'}${twin.date ? ', ' + twin.date.split('-').reverse().join('/') : ''}, ${Number(twin.value || 0).toLocaleString('pt-BR', { style: 'currency', currency: twin.currency || 'BRL' })}.\n\nNão é permitido cadastrar em duplicidade. Se for outro lançamento, diferencie em "Referente a"; ou use ✏️ no registro existente.`);
+    return false;
+  }
   if (cnpj.length === 14 && store) st.cnpjs[cnpj] = store;
   const old = editingDoc && st.docs.find(x => x.id === editingDoc);
   if (old) Object.assign(old, data, { u: Date.now() }); else st.docs.push({ id: uid(), u: Date.now(), ...data });
@@ -323,9 +328,8 @@ function saveProduct(sectorId) {
   const g = id => $(id).value.trim(), n = id => $(id).value === '' ? '' : Number($(id).value);
   const data = { name: g('pName'), sectorId, code: g('regCode'), maker: g('pMaker'), brand: g('pBrand'), comp: g('pComp'), content: g('pQty'), portion: g('pPortion'), volume: g('pVol'),
     stock: n('pStock'), min: n('pMin'), expiry: $('pExp').value, notes: g('pSpecs'), image };
-  if (!editing && st.items.some(i => i.sectorId === sectorId && norm(i.name) === norm(data.name)) &&
-      !confirm('Já existe um item com esse nome neste setor. Adicionar mesmo assim?')) return false;
-  if (data.code && st.items.some(i => i.code === data.code && i.id !== editing)) { alert('Já existe um produto com esse código.'); return false; }
+  const fps = itemFps(data), twin = st.items.find(i => i.id !== editing && itemFps(i).some(f => fps.includes(f)));
+  if (twin) { alert(`Já existe esse produto: "${twin.name}"${twin.brand ? ' (' + twin.brand + ')' : ''}.\n\nNão é permitido cadastrar em duplicidade. Use ✏️ para alterar o existente.`); return false; }
   st.learn[norm(data.name)] = sectorId;
   if (data.code) st.codes[data.code] = { ...data };
   if (editing) Object.assign(st.items.find(i => i.id === editing), data, { u: Date.now() });
@@ -424,7 +428,7 @@ $('restoreBtn').onclick = () => $('restoreFile').click();
 // Por padrão JUNTA (não apaga nada); substituir tudo é a segunda opção e guarda uma cópia antes
 async function applyBackup(d) {
   if (confirm('Juntar este backup aos dados atuais?\n\nOK = juntar (recomendado: não apaga nada)\nCancelar = ver a opção de substituir tudo')) {
-    const n = mergeData(d); return alert(`Juntado: ${n.add} novo(s), ${n.upd} atualizado(s), ${n.del} excluído(s).`);
+    const n = mergeData(d); return alert(`Juntado: ${n.add} novo(s), ${n.upd} atualizado(s), ${n.del} excluído(s)${n.dup ? ', ' + n.dup + ' duplicado(s) unificado(s)' : ''}.`);
   }
   if (!confirm('Substituir TODOS os dados atuais pelo backup?\n\nUma cópia dos dados atuais será guardada antes.')) return;
   await safetyCopy(); st = fix(d); st.unitsCleaned = true; save(st); refresh();
@@ -446,8 +450,8 @@ $('shareBtn').onclick = () => exportLote(true);
 $('mergeBtn').onclick = () => $('mergeFile').click();
 $('mergeFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  try { const n = await mergeFile(f); alert(`Juntado: ${n.add} novo(s), ${n.upd} atualizado(s), ${n.del} excluído(s).`); }
+  try { const n = await mergeFile(f); alert(`Juntado: ${n.add} novo(s), ${n.upd} atualizado(s), ${n.del} excluído(s)${n.dup ? ', ' + n.dup + ' duplicado(s) unificado(s)' : ''}.`); }
   catch { alert('Arquivo inválido.'); }
 };
 $('dirBtn').onclick = pickDir;
-$('ver').textContent = 'Versão 15 carregada';
+$('ver').textContent = 'Versão 16 carregada';

@@ -1,5 +1,5 @@
 // Levar os dados entre celular e computador (arquivo de lote) e gravar na pasta do HD (só no computador)
-import { fix, save, afterSave, kvGet, kvSet, ts, uid, exportJSON } from './storage.js';
+import { fix, save, afterSave, kvGet, kvSet, ts, uid, exportJSON, collapse, docFps, itemFps } from './storage.js';
 const $ = id => document.getElementById(id);
 export const hasDir = 'showDirectoryPicker' in window && !/Android|iPhone|iPad/i.test(navigator.userAgent);
 let getSt, onChange, dir = null, wait = null, err = '', timer = 0, bakDone = false, replacing = false;
@@ -8,7 +8,7 @@ let getSt, onChange, dir = null, wait = null, err = '', timer = 0, bakDone = fal
 // Regra: vale a alteração mais recente; o que foi excluído (e não alterado depois) continua excluído.
 export function merge(st, inc) {
   st.cnpjs = st.cnpjs || {};
-  const n = { add: 0, upd: 0, del: 0 }, dead = st.deleted;
+  const n = { add: 0, upd: 0, del: 0, dup: 0 }, dead = st.deleted;
   for (const [k, t] of Object.entries(inc.deleted || {})) dead[k] = Math.max(dead[k] || 0, t);
   for (const key of ['items', 'docs', 'saved']) {
     const list = st[key], pos = new Map(list.map((x, i) => [String(x.id), i]));
@@ -20,7 +20,8 @@ export function merge(st, inc) {
       if (!pos.has(id)) { pos.set(id, list.push(x) - 1); n.add++; }
       else if (x.u > list[pos.get(id)].u) { list[pos.get(id)] = x; n.upd++; }
     });
-    st[key] = list.filter(x => { if ((dead[String(x.id)] || 0) >= x.u) { n.del++; return false; } return true; });
+    const base = key === 'saved' ? list : collapse(list, key === 'items' ? itemFps : docFps, dead, n);   // sem duplicados
+    st[key] = base.filter(x => { if ((dead[String(x.id)] || 0) >= x.u) { n.del++; return false; } return true; });
   }
   const sec = new Set(st.sectors.map(s => s.id)); (inc.sectors || []).forEach(s => { if (!sec.has(s.id)) st.sectors.push(s); });
   (inc.units || []).forEach(u => { if (!st.units.includes(u)) st.units.push(u); });
@@ -29,6 +30,10 @@ export function merge(st, inc) {
   Object.assign(st.codes, { ...(inc.codes || {}), ...st.codes });
   Object.assign(st.cnpjs, { ...(inc.cnpjs || {}), ...st.cnpjs });
   fix(st); return n;
+}
+// Unifica duplicados que já existam nos dados (devolve quantos foram unificados)
+export function dedupe(st) {
+  const n = { dup: 0 }; st.items = collapse(st.items, itemFps, st.deleted, n); st.docs = collapse(st.docs, docFps, st.deleted, n); fix(st); return n.dup;
 }
 export function mergeData(d) {
   if (!Array.isArray(d.items) || !Array.isArray(d.sectors)) throw new Error('Arquivo inválido');
@@ -92,7 +97,7 @@ async function push() {
       if (!replacing) {   // lê antes de gravar: junta o que outro navegador/aparelho já tenha gravado, para nunca apagar nada
         const n = merge(st, parse(raw));
         await kvSet('state', st);
-        if (n.add || n.upd || n.del) onChange();
+        if (n.add || n.upd || n.del || n.dup) onChange();
       }
     } else bakDone = true;
     replacing = false;

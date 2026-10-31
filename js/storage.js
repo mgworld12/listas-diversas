@@ -95,3 +95,27 @@ export async function importJSON(file) {
   if (!Array.isArray(data.items) || !Array.isArray(data.sectors)) throw new Error('Arquivo inválido');
   return data;
 }
+
+// ---------- Duplicidade: nenhum produto, NF ou conta pode existir duas vezes ----------
+const nz = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+// NF/boleto/conta de consumo: a chave; sem chave (Pix, lançamento manual): tipo + estabelecimento + data + valor + descrição
+export const docFps = d => d.key ? ['k:' + d.key]
+  : ['f|' + [d.type, d.cnpj || nz(d.store), d.date, Math.round((d.value || 0) * 100), d.currency || 'BRL', d.kind || '', d.card || '', nz(d.desc)].join('|')];
+// Produto: o código de barras, ou o mesmo nome + marca + quantidade + volume
+export const itemFps = i => [i.code ? 'c:' + i.code : '', 'n|' + [nz(i.name), nz(i.brand), nz([i.qty, i.unit, i.content].join(' ')).replace(/ /g, ''), nz(i.volume).replace(/ /g, '')].join('|')].filter(Boolean);
+// Junta registros iguais: fica o de menor id (igual nos dois aparelhos), com o conteúdo mais recente; os outros viram "excluídos"
+export function collapse(list, fps, dead, n) {
+  const seen = new Map(), out = [];
+  for (const x of list) {
+    const f = fps(x), twin = f.map(k => seen.get(k)).find(Boolean);
+    if (!twin) { out.push(x); f.forEach(k => seen.set(k, x)); continue; }
+    const keep = String(x.id) < String(twin.id) ? x : twin, lose = keep === x ? twin : x, newer = (x.u || 0) > (twin.u || 0) ? x : twin;
+    if (newer !== keep) Object.assign(keep, { ...newer, id: keep.id });
+    keep.u = Math.max(x.u || 0, twin.u || 0);
+    dead[String(lose.id)] = Date.now();
+    out[out.indexOf(twin)] = keep;
+    [...f, ...fps(twin)].forEach(k => seen.set(k, keep));
+    n.dup++;
+  }
+  return out;
+}
