@@ -176,9 +176,11 @@ details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
 
 /* Contorno do setor nos botões e marca na cor do setor nas linhas */
 .secbtn:hover{background:color-mix(in srgb,var(--sc,var(--primary)) 14%,transparent)}
-.dtable tbody tr td:first-child{border-left:5px solid var(--sc,transparent)}
+.dtable tbody tr td:first-child{position:relative;padding-left:20px}
+.dtable tbody tr td:first-child::before{content:'';position:absolute;left:3px;top:4px;bottom:4px;width:10px;border:4px solid var(--sc,transparent);border-right:0;border-radius:12px 0 0 12px}
 #docKindWrap select{margin-bottom:8px}
 @media (max-width:700px){
-  .dtable tbody tr{border-left:5px solid var(--sc,var(--line))}
-  .dtable tbody tr td:first-child{border-left:0}
+  .dtable tbody tr td:first-child{padding-left:22px}
 }
+
+.dtable th{text-align:center}
