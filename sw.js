@@ -1,4 +1,4 @@
-const C = 'listas-v13';
+const C = 'listas-v14';
 self.addEventListener('install', e => { self.skipWaiting(); e.waitUntil(caches.open(C).then(c => c.addAll(['./', 'index.html', 'css/styles.css', 'js/main.js', 'js/config.js', 'js/storage.js', 'js/sync.js', 'js/render.js', 'js/export.js', 'js/media.js', 'js/docs.js', 'icon.svg']))); });
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== C).map(x => caches.delete(x))))));
 // Rede primeiro (sempre a versão mais nova); sem internet, usa o que está guardado. Só guarda arquivos do próprio site.
