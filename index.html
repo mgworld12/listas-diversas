@@ -48,6 +48,8 @@
 
   <section id="docsPanel" class="panel" hidden></section>
 
+  <section id="pricePanel" class="panel" hidden></section>
+
   <section id="savedPanel" class="panel" hidden></section>
 
   <section id="syncPanel" class="panel noprint">
@@ -66,6 +68,7 @@
   <footer class="backup noprint">
     <button type="button" id="backupBtn" class="btn">Salvar backup</button>
     <button type="button" id="restoreBtn" class="btn">Restaurar backup</button>
+    <button type="button" id="helpBtn" class="btn">❓ Ajuda</button>
     <input type="file" id="restoreFile" accept="application/json" hidden>
   </footer>
   <p id="ver" class="empty noprint" style="text-align:center">carregando…</p>
@@ -82,6 +85,19 @@
       <button value="cancel" class="btn" formnovalidate>Cancelar</button>
     </menu>
   </form>
+</dialog>
+<dialog id="helpDlg" class="reg">
+  <h3>Ajuda</h3>
+  <p class="empty" id="helpVer"></p>
+  <ul>
+    <li><b>Cadastrar NF:</b> leia o QR Code do cupom (ou digite a chave). O site traz CNPJ, razão social e mês. Para trazer data, valor e itens: toque em <i>Abrir DANFE</i>, selecione tudo e copie, volte e toque em <i>Colar da área de transferência</i>.</li>
+    <li><b>Cadastrar Conta:</b> boleto, conta de consumo ou Pix, com tipo (gás, energia, água...) e situação <i>Paga</i> ou <i>A pagar</i>. Contas a pagar vencidas aparecem em "Atenção" e têm o botão <i>✔ Pagar</i>.</li>
+    <li><b>Cadastrar Produto:</b> código de barras, foto, estoque e validade. Estoque baixo e produtos vencendo aparecem em "Atenção".</li>
+    <li><b>Setores:</b> use a barra de setores para filtrar; em <i>⚙️ Setores</i> você cria, ordena, edita e define um <b>limite mensal</b> de gasto.</li>
+    <li><b>Backup:</b> no computador, conecte a pasta do HD (grava sozinho). No celular, use <i>Exportar alterações</i> e junte no computador com <i>Juntar arquivo</i>. Itens repetidos são unificados.</li>
+    <li><b>Compras e contas:</b> filtros por mês, situação e busca, resumo com gráficos e exportação para Excel. O <b>Histórico de preços</b> compara o preço por unidade dos itens das NFs.</li>
+  </ul>
+  <menu><button type="button" id="helpClose" class="btn primary">Fechar</button></menu>
 </dialog>
 <dialog id="secDlg" class="reg">
   <h3>Setores</h3>
@@ -108,7 +124,7 @@
         <label for="docCnpj">CNPJ:</label>
         <input type="text" id="docCnpj" maxlength="18" inputmode="numeric" placeholder="00.000.000/0000-00">
         <div class="row">
-          <div class="field grow"><label for="docDate">Data:</label><input type="date" id="docDate"></div>
+          <div class="field grow"><label for="docDate" id="docDateL">Data:</label><input type="date" id="docDate"></div>
           <div class="field grow"><label for="docValue">Valor:</label><div style="display:flex;gap:6px"><select id="docCur" aria-label="Moeda" style="width:auto"></select><input type="text" id="docValue" inputmode="numeric" placeholder="R$ 0,00" autocomplete="off" style="flex:1;min-width:0"></div></div>
         </div>
         <div id="docKindWrap">
@@ -117,6 +133,12 @@
           <div id="docCardWrap" hidden><label for="docCard">Cartão: 4 últimos números</label><input type="text" id="docCard" maxlength="4" inputmode="numeric" placeholder="0000" autocomplete="off"></div>
         </div>
         <div id="docDescWrap"><label for="docDesc">A que se refere:</label><input type="text" id="docDesc" maxlength="80" placeholder="Ex.: Conta de luz"></div>
+        <div id="docContaWrap">
+          <label for="docStatus">Situação:</label>
+          <select id="docStatus"><option value="paga">✔ Paga</option><option value="pendente">⏳ A pagar</option></select>
+          <label for="docLinkIn">Link do comprovante (opcional):</label>
+          <input type="url" id="docLinkIn" placeholder="https://..." autocomplete="off">
+        </div>
         <div id="nfExtra" hidden>
           <button type="button" id="nfClip" class="btn">📋 Colar da área de transferência</button>
           <details class="paste"><summary>Trazer itens, data e valor da nota (colar o texto da página)</summary>
