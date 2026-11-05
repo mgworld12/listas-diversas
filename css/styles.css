@@ -177,10 +177,28 @@ details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
 /* Contorno do setor nos botões e marca na cor do setor nas linhas */
 .secbtn:hover{background:color-mix(in srgb,var(--sc,var(--primary)) 14%,transparent)}
 .dtable tbody tr td:first-child{position:relative;padding-left:20px}
-.dtable tbody tr td:first-child::before{content:'';position:absolute;left:3px;top:4px;bottom:4px;width:10px;border:4px solid var(--sc,transparent);border-right:0;border-radius:12px 0 0 12px}
+.dtable tbody tr td:first-child::before{content:'';position:absolute;left:3px;top:4px;bottom:4px;width:10px;border:4px solid var(--sc,transparent);border-right:0;border-radius:5px 0 0 5px}
 #docKindWrap select{margin-bottom:8px}
 @media (max-width:700px){
   .dtable tbody tr td:first-child{padding-left:22px}
 }
 
 .dtable th{text-align:center}
+
+/* Linhas suaves entre as colunas, gráficos, histórico de preços e botões da tabela */
+.dtable th,.dtable td{border-right:1px solid color-mix(in srgb,var(--line) 55%,transparent)}
+.dtable th:last-child,.dtable td:last-child{border-right:0}
+@media (max-width:700px){.dtable th,.dtable td{border-right:0}}
+.dtable .btn{border:1px solid var(--line);background:var(--card);padding:2px 8px;font-size:.8rem;border-radius:6px;font-weight:600}
+.charts{display:flex;flex-wrap:wrap;gap:24px;margin:12px 0}
+.chart{flex:1 1 280px;min-width:260px}.chart h3{margin:0 0 8px;font-size:.95rem}
+.cols{display:flex;gap:8px;align-items:flex-end;min-height:150px;overflow-x:auto;padding-bottom:4px}
+.col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:34px}
+.col .bar{width:26px;background:var(--primary);border-radius:4px 4px 0 0}
+.col .v{font-size:.65rem;color:var(--muted)}.col .l{font-size:.7rem;margin-top:2px}
+.srow{display:grid;grid-template-columns:minmax(90px,140px) 1fr auto;gap:8px;align-items:center;margin:6px 0}
+.sw{background:color-mix(in srgb,var(--line) 40%,transparent);border-radius:7px;height:14px;overflow:hidden}
+.sbar{height:100%;border-radius:7px}.sv{font-size:.85rem;font-variant-numeric:tabular-nums}
+.pbar{margin:0 0 10px}.pbar input{max-width:260px}
+#helpDlg ul{padding-left:18px;line-height:1.45}
+#secList input{padding:4px 6px}
