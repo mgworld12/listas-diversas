@@ -1,8 +1,8 @@
 // Levar os dados entre celular e computador (arquivo de lote) e gravar na pasta do HD (só no computador)
-import { fix, save, afterSave, kvGet, kvSet, ts, uid, exportJSON, collapse, docFps, itemFps } from './storage.js';
+import { fix, save, afterSave, kvGet, kvSet, ts, uid, exportJSON, collapse, docFps, itemFps, nz, dedupeSectors } from './storage.js';
 const $ = id => document.getElementById(id);
 export const hasDir = 'showDirectoryPicker' in window && !/Android|iPhone|iPad/i.test(navigator.userAgent);
-let getSt, onChange, dir = null, wait = null, err = '', timer = 0, bakDone = false, replacing = false;
+let getSt, onChange, dir = null, wait = null, err = '', timer = 0, bakDone = false, replacing = false, size = 0, sizeAt = 0;
 
 // ---------- Juntar os dados de outro arquivo aos atuais ----------
 // Regra: vale a alteração mais recente; o que foi excluído (e não alterado depois) continua excluído.
@@ -10,6 +10,21 @@ export function merge(st, inc) {
   st.cnpjs = st.cnpjs || {};
   const n = { add: 0, upd: 0, del: 0, dup: 0 }, dead = st.deleted;
   for (const [k, t] of Object.entries(inc.deleted || {})) dead[k] = Math.max(dead[k] || 0, t);
+  // Setores: o mesmo nome (sem diferenciar maiúsculas/acentos) é o mesmo setor, mesmo com códigos diferentes
+  const sm = {};
+  (inc.sectors || []).forEach(s => {
+    if (dead['sec:' + s.id]) return;   // setor excluído em algum aparelho
+    const mine = st.sectors.find(x => x.id === s.id) || st.sectors.find(x => nz(x.name) === nz(s.name));
+    if (mine) sm[s.id] = mine.id; else { st.sectors.push(s); sm[s.id] = s.id; }
+  });
+  const rm = id => sm[id] || id;
+  (inc.items || []).forEach(i => { if (i.sectorId) i.sectorId = rm(i.sectorId); });
+  (inc.docs || []).forEach(d => { if (d.sectorId) d.sectorId = rm(d.sectorId); });
+  Object.keys(inc.learn || {}).forEach(k => { inc.learn[k] = rm(inc.learn[k]); });
+  Object.values(inc.codes || {}).forEach(c => { if (c && c.sectorId) c.sectorId = rm(c.sectorId); });
+  st.budget = st.budget || {}; const ib = {}; Object.entries(inc.budget || {}).forEach(([k, v]) => { ib[rm(k)] = v; });
+  Object.assign(st.budget, { ...ib, ...st.budget });
+  st.sectors = st.sectors.filter(s => !dead['sec:' + s.id] || st.items.some(i => i.sectorId === s.id) || st.docs.some(d => d.sectorId === s.id));
   for (const key of ['items', 'docs', 'saved']) {
     const list = st[key], pos = new Map(list.map((x, i) => [String(x.id), i]));
     (inc[key] || []).forEach(x => {
@@ -23,17 +38,17 @@ export function merge(st, inc) {
     const base = key === 'saved' ? list : collapse(list, key === 'items' ? itemFps : docFps, dead, n);   // sem duplicados
     st[key] = base.filter(x => { if ((dead[String(x.id)] || 0) >= x.u) { n.del++; return false; } return true; });
   }
-  const sec = new Set(st.sectors.map(s => s.id)); (inc.sectors || []).forEach(s => { if (!sec.has(s.id)) st.sectors.push(s); });
   (inc.units || []).forEach(u => { if (!st.units.includes(u)) st.units.push(u); });
   const col = new Set(st.colors.map(c => c.name)); (inc.colors || []).forEach(c => { if (!col.has(c.name)) st.colors.push(c); });
   Object.assign(st.learn, { ...(inc.learn || {}), ...st.learn });
   Object.assign(st.codes, { ...(inc.codes || {}), ...st.codes });
   Object.assign(st.cnpjs, { ...(inc.cnpjs || {}), ...st.cnpjs });
+  n.dup += dedupeSectors(st);
   fix(st); return n;
 }
 // Unifica duplicados que já existam nos dados (devolve quantos foram unificados)
 export function dedupe(st) {
-  const n = { dup: 0 }; st.items = collapse(st.items, itemFps, st.deleted, n); st.docs = collapse(st.docs, docFps, st.deleted, n); fix(st); return n.dup;
+  const n = { dup: dedupeSectors(st) }; st.items = collapse(st.items, itemFps, st.deleted, n); st.docs = collapse(st.docs, docFps, st.deleted, n); fix(st); return n.dup;
 }
 export function mergeData(d) {
   if (!Array.isArray(d.items) || !Array.isArray(d.sectors)) throw new Error('Arquivo inválido');
@@ -47,7 +62,7 @@ function build(st) {
   items.forEach(i => { if (i.code && st.codes[i.code]) codes[i.code] = st.codes[i.code]; });
   const deleted = Object.fromEntries(Object.entries(st.deleted).filter(([, t]) => t > since));
   return { kind: 'lote', v: 1, device: st.meta.device, created: Date.now(), sectors: st.sectors, units: st.units, colors: st.colors,
-    learn: st.learn, cnpjs: st.cnpjs, codes, items, docs: ch(st.docs), saved: ch(st.saved), deleted };
+    learn: st.learn, cnpjs: st.cnpjs, budget: st.budget, codes, items, docs: ch(st.docs), saved: ch(st.saved), deleted };
 }
 const count = L => L.items.length + L.docs.length + L.saved.length + Object.keys(L.deleted).length;
 
@@ -155,6 +170,9 @@ function status() {
   if (days === null) t.push('💾 Nenhum backup feito ainda: use "Salvar backup".');
   else if (days >= 7) t.push(`⚠️ Faz ${days} dias sem backup: use "Salvar backup".`);
   else t.push(`💾 Último backup: ${new Date(lb).toLocaleDateString('pt-BR')}.`);
+  if (Date.now() - sizeAt > 60000) { try { size = JSON.stringify(st).length; } catch { size = 0; } sizeAt = Date.now(); }   // tamanho dos dados
+  if (size > 15e6) t.push(`⚠️ Os dados já têm ${(size / 1e6).toFixed(1)} MB (as fotos dos produtos pesam): considere remover imagens grandes.`);
+  else if (size > 3e6) t.push(`📦 Tamanho dos dados: ${(size / 1e6).toFixed(1)} MB.`);
   if (!dir && n) t.push(`📤 ${n} alteração(ões) ainda não exportadas para o computador.`);
   $('sync').textContent = t.join(' ');
 }

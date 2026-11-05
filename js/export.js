@@ -1,4 +1,6 @@
 import { cnpjFmt } from './docs.js';
+import { CONTA_TIPOS } from './config.js';
+const contaTxt = d => { if (d.type === 'nf') return d.store || ''; const k = CONTA_TIPOS[d.kind]; return [k ? k.label + (d.kind === 'cartao' && d.card ? ' final ' + d.card : '') : '', d.desc].filter(Boolean).join(' - '); };
 // A biblioteca SheetJS é carregada só quando você clica em "Salvar .xlsx"
 const loadLib = () => window.XLSX ? Promise.resolve() : new Promise((ok, err) => {
   const s = document.createElement('script');
@@ -34,11 +36,11 @@ export async function exportDocs(docs, sectors, date = new Date()) {
   if (!docs.length) return alert('Não há registros para exportar.');
   await loadLib();
   const sec = id => (sectors.find(s => s.id === id) || {}).name || '';
-  const H = ['Data', 'Tipo', 'Estabelecimento / Instituição', 'CNPJ', 'Setor', 'Referente a', 'Moeda', 'Valor', 'Link da nota'];
-  const rows = docs.map(d => [d.date ? d.date.split('-').reverse().join('/') : '', d.type === 'nf' ? 'NF' : 'Conta', d.store || '', d.cnpj ? cnpjFmt(d.cnpj) : '', sec(d.sectorId), d.type === 'nf' ? '' : d.desc || '', d.currency || 'BRL', d.value || 0, d.link || '']);
+  const H = ['Data', 'Tipo', 'Estabelecimento / Instituição', 'CNPJ', 'Setor', 'Referente a', 'Moeda', 'Valor', 'Situação', 'Link da nota'];
+  const rows = docs.map(d => [d.date ? d.date.split('-').reverse().join('/') : '', d.type === 'nf' ? 'NF' : 'Conta', d.store || '', d.cnpj ? cnpjFmt(d.cnpj) : '', sec(d.sectorId), contaTxt(d), d.currency || 'BRL', d.value || 0, d.status === 'pendente' ? 'A pagar' : d.status === 'paga' ? 'Paga' : '', d.link || '']);
   const tot = {}; docs.forEach(d => { const c = d.currency || 'BRL'; tot[c] = (tot[c] || 0) + (d.value || 0); });
   const ws = XLSX.utils.aoa_to_sheet([H, ...rows, [], ...Object.entries(tot).map(([c, v]) => ['', '', '', '', '', '', 'Total ' + c, v])]);
-  ws['!cols'] = [12, 8, 34, 20, 16, 24, 8, 14, 40].map(wch => ({ wch }));
+  ws['!cols'] = [12, 8, 34, 20, 16, 24, 8, 14, 12, 40].map(wch => ({ wch }));
   for (let r = 1; r <= rows.length + 1 + Object.keys(tot).length; r++) { const c = ws['H' + (r + 1)]; if (c && typeof c.v === 'number') c.z = '#,##0.00'; }
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Compras e contas');
   const items = docs.flatMap(d => (d.items || []).map(i => [d.date ? d.date.split('-').reverse().join('/') : '', d.store || '', i.name, i.qty, i.unit || '', i.total]));

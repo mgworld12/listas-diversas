@@ -24,7 +24,7 @@ export const info = it => [[it.qty, it.unit].filter(Boolean).join(' '), it.brand
 const SEC = { id: '' };   // setor escolhido na barra: filtra a tabela de produtos e a de compras e contas
 // Tipo da conta: ícone + nome (+ 4 últimos números do cartão) + descrição
 export const contaTxt = d => {
-  if (d.type === 'nf') return '';
+  if (d.type === 'nf') return d.store || '';
   const k = CONTA_TIPOS[d.kind];
   return [k ? `${k.icon} ${k.label}${d.kind === 'cartao' && d.card ? ' •••• ' + d.card : ''}` : '', d.desc].filter(Boolean).join(' • ');
 };
@@ -170,19 +170,85 @@ function renderAlerts(st, cb) {
   const box = document.getElementById('alerts'); if (!box) return; box.replaceChildren();
   const exp = [], soon = [], low = [];
   st.items.forEach(it => { const s = stockState(it); if (s.expired) exp.push(it); else if (s.soon) soon.push(it); if (s.low) low.push(it); });
-  box.hidden = !(exp.length || soon.length || low.length); if (box.hidden) return;
+  const today = new Date().toLocaleDateString('sv-SE'), in7 = new Date(Date.now() + 7 * DAY).toLocaleDateString('sv-SE'), month = today.slice(0, 7);
+  const pend = st.docs.filter(d => d.type === 'conta' && d.status === 'pendente' && d.date);
+  const late = pend.filter(d => d.date < today), next = pend.filter(d => d.date >= today && d.date <= in7);
+  const over = [], near = [];   // orçamento mensal por setor (só em reais)
+  st.sectors.forEach(s => {
+    const lim = Number((st.budget || {})[s.id]) || 0; if (!lim) return;
+    const used = st.docs.filter(d => d.sectorId === s.id && (d.currency || 'BRL') === 'BRL' && (d.date || '').startsWith(month)).reduce((a, d) => a + (d.value || 0), 0), o = { s, used, lim, pct: used / lim };
+    if (o.pct >= 1) over.push(o); else if (o.pct >= .8) near.push(o);
+  });
+  box.hidden = !(exp.length || soon.length || low.length || late.length || next.length || over.length || near.length); if (box.hidden) return;
   box.append(el('h2', '', '⚠️ Atenção'));
+  const dd = d => d.date.split('-').reverse().slice(0, 2).join('/');
+  const docLine = (t, arr) => { if (arr.length) box.append(el('p', 'notes', `${t}: ${arr.slice(0, 8).map(d => `${d.store || d.desc || 'conta'} (${dd(d)}, ${money(d.value || 0, d.currency)})`).join('; ')}${arr.length > 8 ? '…' : ''}`)); };
+  docLine('🔴 Contas vencidas', late); docLine('🟠 Contas a vencer em até 7 dias', next);
+  const bud = (t, arr) => arr.forEach(o => box.append(el('p', 'notes', `${t}: ${o.s.icon} ${o.s.name} — ${money(o.used)} de ${money(o.lim)} (${Math.round(o.pct * 100)}%) neste mês`)));
+  bud('🔴 Orçamento estourado', over); bud('🟠 Perto do limite', near);
   const line = (t, arr) => { if (arr.length) box.append(el('p', 'notes', `${t}: ${arr.slice(0, 8).map(i => i.name).join(', ')}${arr.length > 8 ? '…' : ''}`)); };
   line('Vencidos', exp); line('Vencem em até 30 dias', soon); line('Estoque baixo', low);
   if (low.length && cb.addLow) box.append(btn('Adicionar o estoque baixo à lista de compras', 'Marca esses itens na lista', cb.addLow, 'btn'));
 }
 
 // Compras (NF) e contas cadastradas, em tabela: colunas alinhadas, filtros, resumo e exportação
-const F = { m: '', s: '', q: '' }; let cur = null, shown = [];
+const F = { m: '', t: '', s: '', q: '' }; let cur = null, shown = [];
 const nz = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 const curSort = ([a], [b]) => a === 'BRL' ? -1 : b === 'BRL' ? 1 : a.localeCompare(b);
 const fillSel = (sel, opts, val) => { sel.replaceChildren(...opts.map(([v, t]) => new Option(t, v))); sel.value = opts.some(o => o[0] === val) ? val : ''; return sel.value; };
 function totalsCell(tot) { const td = el('td', 'nw num val'); Object.entries(tot).sort(curSort).forEach(([c, v]) => td.append(el('div', '', money(v, c)))); return td; }
+// Gráficos simples (só em reais): gasto por mês (últimos 12) e por setor, na cor do setor
+function charts(st) {
+  const wrap = el('div', 'charts'), docs = st.docs.filter(d => (d.currency || 'BRL') === 'BRL' && d.value > 0);
+  if (!docs.length) return wrap;
+  const sum = keyOf => { const m = new Map(); docs.forEach(d => { const k = keyOf(d); if (k) m.set(k, (m.get(k) || 0) + d.value); }); return m; };
+  const bm = sum(d => (d.date || '').slice(0, 7)), months = [...bm.keys()].sort().slice(-12), mx = Math.max(...months.map(k => bm.get(k)), 1);
+  const c1 = el('div', 'chart'), cols = el('div', 'cols'); c1.append(el('h3', '', 'Gasto por mês (R$)'));
+  months.forEach(k => {
+    const v = bm.get(k), c = el('div', 'col'), b = el('div', 'bar'); b.style.height = Math.max(4, Math.round(v / mx * 110)) + 'px'; b.title = money(v);
+    c.append(el('span', 'v', Math.round(v).toLocaleString('pt-BR')), b, el('span', 'l', k.slice(5) + '/' + k.slice(2, 4))); cols.append(c);
+  });
+  c1.append(cols);
+  const bs = sum(d => d.sectorId), secs = [...bs.keys()].sort((a, b) => bs.get(b) - bs.get(a)), mx2 = Math.max(...secs.map(k => bs.get(k)), 1), c2 = el('div', 'chart');
+  c2.append(el('h3', '', 'Gasto por setor (R$)'));
+  secs.forEach(k => {
+    const s = st.sectors.find(x => x.id === k), v = bs.get(k), r = el('div', 'srow'), w = el('div', 'sw'), bar = el('div', 'sbar');
+    bar.style.width = Math.max(3, Math.round(v / mx2 * 100)) + '%'; bar.style.background = s ? s.color : '#9ca3af'; w.append(bar);
+    r.append(el('span', 'sl', s ? `${s.icon} ${s.name}` : 'Sem setor'), w, el('span', 'sv', money(v))); c2.append(r);
+  });
+  wrap.append(c1, c2); return wrap;
+}
+// Histórico de preços dos itens das NFs (preço por unidade; só compara itens com o mesmo nome)
+const P = { q: '' }; let pst = null;
+export function renderPrices(st) {
+  pst = st;
+  const box = document.getElementById('pricePanel'); if (!box) return;
+  const rows = new Map();
+  st.docs.forEach(d => (d.items || []).forEach(i => {
+    if ((d.currency || 'BRL') !== 'BRL' || !i.name || !(Number(i.total) > 0)) return;
+    const qty = Number(i.qty) > 0 ? Number(i.qty) : 1, k = nz(i.name), r = rows.get(k) || { name: i.name, list: [] };
+    r.list.push({ price: Number(i.total) / qty, date: d.date || '', store: d.store || '' }); rows.set(k, r);
+  }));
+  box.hidden = !rows.size; if (!rows.size) return;
+  let bar = box.querySelector('.pbar'), body = box.querySelector('.pbody');
+  if (!bar) {
+    bar = el('div', 'pbar noprint'); body = el('div', 'pbody');
+    const q = el('input'); q.type = 'search'; q.placeholder = 'Buscar item'; q.setAttribute('aria-label', 'Buscar item'); q.oninput = () => { P.q = q.value; renderPrices(pst); }; bar.append(q);
+    box.replaceChildren(el('h2', '', 'Histórico de preços'), el('p', 'empty', 'Preço por unidade dos itens das NFs. Só compara itens com o mesmo nome.'), bar, body);
+  }
+  const f = nz(P.q), fmt = d => d.split('-').reverse().slice(0, 2).join('/');
+  const list = [...rows.values()].filter(r => !f || nz(r.name).includes(f)).sort((a, b) => b.list.length - a.list.length || a.name.localeCompare(b.name, 'pt-BR')).slice(0, 60);
+  body.replaceChildren(); if (!list.length) return body.append(el('p', 'empty', 'Nenhum item encontrado.'));
+  const t = el('table', 'dtable'), thead = el('thead'), hr = el('tr'), tb = el('tbody');
+  ['Item', 'Compras', 'Última', 'Menor preço', 'Maior preço', 'Média'].forEach(h => hr.append(el('th', '', h))); thead.append(hr);
+  list.forEach(r => {
+    const L = [...r.list].sort((a, b) => a.date.localeCompare(b.date)), last = L[L.length - 1], lo = L.reduce((a, b) => b.price < a.price ? b : a), hi = L.reduce((a, b) => b.price > a.price ? b : a);
+    const at = x => `${money(x.price)}${x.store ? ' • ' + x.store : ''}${x.date ? ' • ' + fmt(x.date) : ''}`, tr = el('tr'), cells = [r.name, String(L.length), at(last), at(lo), at(hi), money(L.reduce((a, b) => a + b.price, 0) / L.length)];
+    cells.forEach((c, i) => { const td = el('td', i === 1 ? 'nw' : '', c); td.dataset.l = ['Item', 'Compras', 'Última', 'Menor preço', 'Maior preço', 'Média'][i]; tr.append(td); });
+    tb.append(tr);
+  });
+  t.append(thead, tb); const w = el('div', 'tscroll'); w.append(t); body.append(w);
+}
 function resumo(st) {
   const det = el('details', 'resumo noprint'); det.append(el('summary', '', 'Resumo por mês e por setor'));
   const group = keyOf => { const g = new Map(); st.docs.forEach(d => { const k = keyOf(d), c = d.currency || 'BRL', o = g.get(k) || {}; o[c] = (o[c] || 0) + (d.value || 0); g.set(k, o); }); return g; };
@@ -193,7 +259,8 @@ function resumo(st) {
   };
   det.append(
     table('Mês', group(d => (d.date || '').slice(0, 7) || '-'), k => k === '-' ? 'Sem data' : k.slice(5) + '/' + k.slice(0, 4), (a, b) => b.localeCompare(a)),
-    table('Setor', group(d => d.sectorId || '-'), k => { const s = st.sectors.find(x => x.id === k); return s ? `${s.icon} ${s.name}` : 'Sem setor'; }, (a, b) => String(a).localeCompare(String(b))));
+    table('Setor', group(d => d.sectorId || '-'), k => { const s = st.sectors.find(x => x.id === k); return s ? `${s.icon} ${s.name}` : 'Sem setor'; }, (a, b) => String(a).localeCompare(String(b))),
+    charts(st));
   return det;
 }
 export function renderDocs(st, cb) {
@@ -203,11 +270,13 @@ export function renderDocs(st, cb) {
   let bar = box.querySelector('.docbar'), body = box.querySelector('.docbody');
   if (!bar) {   // filtros: criados uma vez; só a tabela é redesenhada (o campo de busca não perde o foco)
     bar = el('div', 'docbar noprint'); body = el('div', 'docbody');
-    const m = el('select'), q = el('input'), x = btn('Exportar Excel', 'Salvar a lista filtrada em .xlsx', () => cur.cb.xlsx(shown), 'btn');
+    const m = el('select'), t = el('select'), q = el('input'), x = btn('Exportar Excel', 'Salvar a lista filtrada em .xlsx', () => cur.cb.xlsx(shown), 'btn');
     m.setAttribute('aria-label', 'Mês'); q.type = 'search'; q.placeholder = 'Buscar estabelecimento ou CNPJ'; q.setAttribute('aria-label', 'Buscar');
+    t.setAttribute('aria-label', 'Situação'); t.append(new Option('Todas as situações', ''), new Option('A pagar', 'pendente'), new Option('Pagas', 'paga'));
+    t.onchange = () => { F.t = t.value; renderDocs(cur.st, cur.cb); };
     m.onchange = () => { F.m = m.value; renderDocs(cur.st, cur.cb); };
     q.oninput = () => { F.q = q.value; renderDocs(cur.st, cur.cb); };
-    bar.append(m, q, x); box.replaceChildren(el('h2', '', 'Compras e contas'), bar, body);
+    bar.append(m, t, q, x); box.replaceChildren(el('h2', '', 'Compras e contas'), bar, body);
   }
   const m = bar.querySelector('select');
   const months = [...new Set(st.docs.map(d => (d.date || '').slice(0, 7)).filter(Boolean))].sort().reverse();
@@ -215,7 +284,7 @@ export function renderDocs(st, cb) {
 
   const cur_ = d => d.currency || 'BRL', q = nz(F.q);
   const docs = [...st.docs].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  shown = docs.filter(d => (!F.m || (d.date || '').startsWith(F.m)) && (!SEC.id || d.sectorId === SEC.id) &&
+  shown = docs.filter(d => (!F.m || (d.date || '').startsWith(F.m)) && (!SEC.id || d.sectorId === SEC.id) && (!F.t || d.status === F.t) &&
     (!q || nz([d.store, d.cnpj, d.cnpj ? cnpjFmt(d.cnpj) : '', d.desc].join(' ')).includes(q)));
   body.replaceChildren(resumo(st));
   if (!shown.length) return body.append(el('p', 'empty', 'Nenhum registro neste filtro.'));
@@ -227,6 +296,7 @@ export function renderDocs(st, cb) {
     { h: 'Referente a', get: d => contaTxt(d) },
     { h: 'Valor', c: 'nw num val', always: 1, value: 1 },
     { h: 'Data', c: 'nw', always: 1, get: d => d.date ? d.date.split('-').reverse().join('/') : '' },
+    { h: 'Situação', c: 'nw', pay: 1, get: d => d.status || '' },
     { h: 'DANFE', c: 'nw', link: 1 }
   ];
   const cols = all.filter(c => c.always || shown.some(d => c.link ? d.link : c.get(d)));   // colunas sem nenhum dado ficam ocultas
@@ -245,7 +315,11 @@ export function renderDocs(st, cb) {
           td.append(det);
         }
       } else if (c.value) { td.textContent = money(d.value || 0, cur_(d)); if (!d.value) { td.classList.add('zero'); td.title = 'Sem valor: use ✏️ para informar'; } }
-      else if (c.link) { if (d.link) { const a = el('a', '', 'DANFE'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; td.append(a); } }
+      else if (c.pay) {   // contas: paga / a pagar (vencida em destaque) e botão para marcar como paga
+        if (d.status === 'pendente') { const late = d.date && d.date < new Date().toLocaleDateString('sv-SE'); td.append(el('span', late ? 'bad' : 'soon', late ? '⚠️ Vencida ' : '⏳ A pagar '), btn('✔ Pagar', 'Marcar como paga', () => cb.pay(d.id), 'btn')); }
+        else if (d.status === 'paga') { td.textContent = '✔ Paga'; if (d.paidOn) td.title = 'Paga em ' + d.paidOn.split('-').reverse().join('/'); }
+      }
+      else if (c.link) { if (d.link) { const a = el('a', '', d.type === 'conta' ? 'Comprovante' : 'DANFE'); a.href = d.link; a.target = '_blank'; a.rel = 'noopener'; td.append(a); } }
       else { td.textContent = c.get(d); if (c.tip) td.title = c.tip(d); }
       tr.append(td);
     });

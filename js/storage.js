@@ -16,7 +16,7 @@ export function fix(st) {
   l.ids = (l.ids || []).filter(has);
   ['prices', 'qtys', 'stores', 'buyUnits'].forEach(k => Object.keys(l[k]).forEach(id => { if (!has(id)) delete l[k][id]; }));
   st.saved = st.saved || []; st.codes = st.codes || {}; st.docs = st.docs || []; st.learn = st.learn || {};
-  st.deleted = st.deleted || {}; st.cnpjs = st.cnpjs || {};
+  st.deleted = st.deleted || {}; st.cnpjs = st.cnpjs || {}; st.budget = st.budget || {};
   st.meta = st.meta || {}; st.meta.device = st.meta.device || uid(); st.meta.lastExport = st.meta.lastExport || 0;
   st.saved.forEach(s => { s.id = s.id || 'l' + (Date.parse(s.date) || uid()); });
   [...st.items, ...st.docs, ...st.saved].forEach(x => { x.u = x.u || ts(x); });
@@ -97,7 +97,7 @@ export async function importJSON(file) {
 }
 
 // ---------- Duplicidade: nenhum produto, NF ou conta pode existir duas vezes ----------
-const nz = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+export const nz = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 // NF/boleto/conta de consumo: a chave; sem chave (Pix, lançamento manual): tipo + estabelecimento + data + valor + descrição
 export const docFps = d => d.key ? ['k:' + d.key]
   : ['f|' + [d.type, d.cnpj || nz(d.store), d.date, Math.round((d.value || 0) * 100), d.currency || 'BRL', d.kind || '', d.card || '', nz(d.desc)].join('|')];
@@ -118,4 +118,22 @@ export function collapse(list, fps, dead, n) {
     n.dup++;
   }
   return out;
+}
+
+// Setores com o mesmo nome (sem diferenciar maiúsculas/acentos) viram um só: fica o de menor código (igual em todos os aparelhos),
+// os registros do repetido passam para ele e o repetido é lembrado como excluído (para não voltar ao juntar backups)
+export function dedupeSectors(st) {
+  const by = new Map(), remap = {}; let n = 0;
+  [...st.sectors].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).forEach(s => {
+    const k = nz(s.name), keep = by.get(k);
+    if (!keep) by.set(k, s); else { remap[s.id] = keep.id; st.deleted['sec:' + s.id] = Date.now(); n++; }
+  });
+  if (!n) return 0;
+  st.sectors = st.sectors.filter(s => !remap[s.id]);
+  const m = id => remap[id] || id, now = Date.now();
+  [...st.items, ...st.docs].forEach(x => { if (remap[x.sectorId]) { x.sectorId = m(x.sectorId); x.u = now; } });
+  Object.keys(st.learn).forEach(k => { st.learn[k] = m(st.learn[k]); });
+  Object.values(st.codes).forEach(c => { if (c && c.sectorId) c.sectorId = m(c.sectorId); });
+  Object.keys(remap).forEach(id => { if (st.budget[id] != null) { if (st.budget[remap[id]] == null) st.budget[remap[id]] = st.budget[id]; delete st.budget[id]; } });
+  return n;
 }

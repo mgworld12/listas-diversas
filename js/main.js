@@ -1,7 +1,7 @@
 import { ICONS, KEYWORDS, CONTA_TIPOS } from './config.js';
-import { load, save, slug, fix, uid, tomb, importJSON, docFps, itemFps } from './storage.js';
+import { load, save, slug, fix, uid, tomb, importJSON, docFps, itemFps, nz } from './storage.js';
 import { initSync, exportLote, mergeFile, mergeData, dedupe, pickDir, saveBackup, readDirBackup, safetyCopy } from './sync.js';
-import { render, renderResults, renderList, updateTotals, renderSaved, renderDocs, stockState, itemLine } from './render.js';
+import { render, renderResults, renderList, updateTotals, renderSaved, renderDocs, renderPrices, stockState, itemLine } from './render.js';
 import { exportXlsx, exportDocs, snapshot } from './export.js';
 import { scanCode, resizeImage, codeFromImage } from './media.js';
 import { lookupProduct, fetchImage, lookupCnpj, parseNF, parseNFText, fetchNFPage, parseBill, cnpjFmt } from './docs.js';
@@ -46,8 +46,9 @@ function fillSectors(value = $('regSector').value) {
 $('regSector').onchange = async e => {
   auto = false;
   if (e.target.value !== NEW) return;
-  const n = await ask('sector'), name = n && n.name.toUpperCase();
-  if (name && !st.sectors.some(s => s.name === name)) {
+  const n = await ask('sector'), name = n && n.name.toUpperCase(), same = name && st.sectors.find(s => nz(s.name) === nz(name));
+  if (same) fillSectors(same.id);   // já existe um setor com esse nome: usa o existente
+  else if (name) {
     st.sectors.push({ id: slug(name) + '-' + Date.now().toString(36), name, icon: n.icon, color: n.color }); save(st); fillSectors(st.sectors.at(-1).id); refresh();
   } else fillSectors('');
 };
@@ -69,8 +70,9 @@ const refresh = () => {
     del: i => { if (confirm('Excluir esta lista salva?')) { tomb(st, st.saved[i].id); st.saved.splice(i, 1); save(st); refresh(); } }
   });
   renderDocs(st, {
-    del: delDoc, edit: editDoc, xlsx: list => exportDocs(list, st.sectors).catch(xlsxErr)
+    del: delDoc, edit: editDoc, pay: payDoc, xlsx: list => exportDocs(list, st.sectors).catch(xlsxErr)
   });
+  renderPrices(st);
   if (listMode) renderList(st, { price, store, qty, buyUnit });
   if ($('secDlg').open) renderSecList();
 };
@@ -95,6 +97,8 @@ function fillKinds(value = '') {
   s.value = value; $('docCardWrap').hidden = value !== 'cartao';
 }
 $('docKind').onchange = () => { $('docCardWrap').hidden = $('docKind').value !== 'cartao'; };
+function dateLabel() { $('docDateL').textContent = regType === 'conta' ? ($('docStatus').value === 'pendente' ? 'Vencimento:' : 'Data do pagamento:') : 'Data:'; }
+$('docStatus').onchange = dateLabel;
 
 // ---------- Janela única de cadastro: NF, Conta e Produto ----------
 const TITLES = { nf: 'Cadastrar NF', conta: 'Cadastrar Conta', produto: 'Cadastrar Produto' };
@@ -130,10 +134,10 @@ function openReg(type, it = null, doc = null) {
   $('regTitle').textContent = it ? 'Editar produto' : doc ? 'Editar registro' : TITLES[type];
   $('docFields').hidden = prod; $('prodFields').hidden = !prod; $('regPhoto').hidden = !prod;
   $('docStoreL').textContent = type === 'nf' ? 'Estabelecimento:' : 'Instituição:';
-  $('docDescWrap').hidden = type !== 'conta'; $('docKindWrap').hidden = type !== 'conta'; $('nfExtra').hidden = type !== 'nf';
+  $('docDescWrap').hidden = type !== 'conta'; $('docKindWrap').hidden = type !== 'conta'; $('docContaWrap').hidden = type !== 'conta'; $('nfExtra').hidden = type !== 'nf';
   $('docDate').required = !prod; $('pName').required = prod; $('docDate').classList.remove('warn');
-  ['regCode', 'docStore', 'docCnpj', 'docValue', 'docDesc', 'docCard', 'nfPaste', 'pName', 'pMaker', 'pBrand', 'pComp', 'pQty', 'pPortion', 'pVol', 'pStock', 'pMin', 'pExp', 'pSpecs'].forEach(i => $(i).value = '');
-  fillCur('BRL'); docVal = 0; fillKinds(''); setImage(''); fillSectors(''); rmsg(''); renderItemsBox(); showNfExtra();
+  ['regCode', 'docStore', 'docCnpj', 'docValue', 'docDesc', 'docCard', 'docLinkIn', 'nfPaste', 'pName', 'pMaker', 'pBrand', 'pComp', 'pQty', 'pPortion', 'pVol', 'pStock', 'pMin', 'pExp', 'pSpecs'].forEach(i => $(i).value = '');
+  fillCur('BRL'); docVal = 0; fillKinds(''); $('docStatus').value = 'paga'; dateLabel(); setImage(''); fillSectors(''); rmsg(''); renderItemsBox(); showNfExtra();
   $('docDate').value = type === 'nf' ? new Date().toLocaleDateString('sv-SE') : '';
   if (it) {
     const set = (id, v) => { $(id).value = v ?? ''; };
@@ -145,7 +149,7 @@ function openReg(type, it = null, doc = null) {
   if (doc) {
     docKey = doc.key || ''; docLink = doc.link || ''; docItems = (doc.items || []).map(i => ({ ...i }));
     $('regCode').value = doc.key || ''; $('docStore').value = doc.store || ''; $('docCnpj').value = doc.cnpj ? maskCnpj(doc.cnpj) : ''; $('docDesc').value = doc.desc || '';
-    fillKinds(doc.kind || ''); $('docCard').value = doc.card || '';
+    fillKinds(doc.kind || ''); $('docCard').value = doc.card || ''; $('docStatus').value = doc.status || 'paga'; $('docLinkIn').value = doc.type === 'conta' ? (doc.link || '') : ''; dateLabel();
     fillCur(doc.currency || 'BRL'); setValue(doc.value || 0); $('docDate').value = doc.date || ''; fillSectors(doc.sectorId || '');
     renderItemsBox(); showNfExtra();
   }
@@ -164,6 +168,7 @@ function showNfExtra() { $('nfOpen').hidden = !docLink; $('nfOpen').href = docLi
 function setDocDate(iso, approx) { $('docDate').value = iso; $('docDate').classList.toggle('warn', !!approx); }
 $('docDate').oninput = $('docDate').onchange = () => $('docDate').classList.remove('warn');
 function delDoc(id) { if (confirm('Excluir este registro?')) { tomb(st, id); st.docs = st.docs.filter(d => d.id !== id); save(st); refresh(); } }
+function payDoc(id) { const d = st.docs.find(x => x.id === id); if (!d) return; d.status = 'paga'; d.paidOn = new Date().toLocaleDateString('sv-SE'); d.u = Date.now(); save(st); refresh(); }
 function editDoc(id) { const d = st.docs.find(x => x.id === id); if (d) openReg(d.type, null, d); }
 // Nome do estabelecimento pelo CNPJ: fica guardado depois da primeira consulta (e vale também sem internet)
 async function storeName(cnpj) {
@@ -254,6 +259,7 @@ function readBill(text) {
   if (!r) { const n = text.replace(/\D/g, '').length; return rmsg(n && n < 44 && !text.startsWith('000201') ? '' : 'Código não reconhecido. Use o código de barras do boleto ou da conta (44 a 48 dígitos) ou o QR Code do Pix.'); }
   const dup = r.key && st.docs.find(d => d.key === r.key && d.id !== editingDoc); if (dup) return openDup(dup, '');
   docKey = r.key; $('docStore').value = r.store; $('docDesc').value = r.desc; if (r.kind && !$('docKind').value) fillKinds(r.kind);
+  $('docStatus').value = r.type === 'pix' ? 'paga' : 'pendente'; dateLabel();   // boleto e conta de consumo: a pagar (o dia é o vencimento); Pix: já pago
   if (r.value) { fillCur('BRL'); setValue(r.value); } if (r.date) $('docDate').value = r.date;
   rmsg(r.date ? 'Lido. O dia é o vencimento; confira os dados e o CNPJ.' : 'Lido. Informe o dia e confira os dados.');
 }
@@ -310,9 +316,11 @@ $('regForm').onsubmit = e => {
   save(st); refresh(); $('regDlg').close('ok');
 };
 function saveDoc(sectorId) {
-  const cnpj = $('docCnpj').value.replace(/\D/g, ''), store = $('docStore').value.trim();
+  const cnpj = $('docCnpj').value.replace(/\D/g, ''), store = $('docStore').value.trim(), linkIn = $('docLinkIn').value.trim(), prev = editingDoc && st.docs.find(x => x.id === editingDoc);
+  if (regType === 'conta' && linkIn && !/^https?:\/\//i.test(linkIn)) { alert('O link do comprovante deve começar com http:// ou https://'); return false; }
   if (!docVal && !confirm('O valor está zerado. Salvar assim mesmo?\n\nVocê pode editar o registro depois (✏️).')) return false;
-  const data = { type: regType, sectorId, store, cnpj, date: $('docDate').value, value: docVal || 0, currency: $('docCur').value, desc: $('docDesc').value.trim(), key: docKey, link: docLink, items: docItems,
+  const data = { type: regType, sectorId, store, cnpj, date: $('docDate').value, value: docVal || 0, currency: $('docCur').value, desc: $('docDesc').value.trim(), key: docKey, link: regType === 'conta' ? linkIn : docLink, items: docItems,
+    status: regType === 'conta' ? $('docStatus').value : '', paidOn: regType === 'conta' && $('docStatus').value === 'paga' ? ((prev && prev.paidOn) || $('docDate').value) : '',
     kind: regType === 'conta' ? $('docKind').value : '', card: regType === 'conta' && $('docKind').value === 'cartao' ? $('docCard').value.replace(/\D/g, '').slice(-4) : '' };
   const fps = docFps(data), twin = st.docs.find(x => x.id !== editingDoc && docFps(x).some(f => fps.includes(f)));
   if (twin) {
@@ -352,7 +360,7 @@ $('secClose').onclick = () => $('secDlg').close();
 $('secAdd').onclick = async () => {
   const n = await ask('sector'); if (!n) return;
   const name = n.name.toUpperCase();
-  if (st.sectors.some(s => s.name === name)) return alert('Já existe um setor com esse nome.');
+  if (st.sectors.some(s => nz(s.name) === nz(name))) return alert('Já existe um setor com esse nome.');
   st.sectors.push({ id: slug(name) + '-' + Date.now().toString(36), name, icon: n.icon, color: n.color }); save(st); fillSectors(); refresh();
 };
 function renderSecList() {
@@ -361,7 +369,9 @@ function renderSecList() {
   const b = (txt, title, fn) => { const e = mk('button', '', txt); e.type = 'button'; e.title = title; e.onclick = fn; return e; };
   st.sectors.forEach(s => {
     const n = st.items.filter(x => x.sectorId === s.id).length + st.docs.filter(d => d.sectorId === s.id).length, r = mk('div', 'rrow');
-    r.append(mk('span', '', s.icon), mk('strong', '', s.name), mk('span', 'notes', `${n} registro(s)`),
+    const lim = mk('input'); lim.type = 'number'; lim.min = '0'; lim.step = '0.01'; lim.placeholder = 'Limite/mês R$'; lim.title = 'Limite de gasto por mês neste setor (R$): avisa quando chegar perto'; lim.style.width = '120px'; lim.value = st.budget[s.id] || '';
+    lim.onchange = () => { const v = Number(lim.value) || 0; if (v > 0) st.budget[s.id] = v; else delete st.budget[s.id]; save(st); refresh(); };
+    r.append(mk('span', '', s.icon), mk('strong', '', s.name), mk('span', 'notes', `${n} registro(s)`), lim,
       b('↑', 'Subir', () => secMove(s.id, -1)), b('↓', 'Descer', () => secMove(s.id, 1)), b('✏️', 'Editar', () => secEdit(s.id)), b('🗑️', 'Excluir', () => secDel(s.id)));
     box.append(r);
   });
@@ -383,6 +393,7 @@ async function secEdit(id) {
 function secDel(id) {
   if (st.items.some(i => i.sectorId === id) || st.docs.some(d => d.sectorId === id)) return alert('Mova ou exclua os itens e registros deste setor antes de excluí-lo.');
   if (!confirm('Excluir este setor?')) return;
+  tomb(st, 'sec:' + id); delete st.budget[id];   // lembra a exclusão para o setor não voltar ao juntar backups
   st.sectors = st.sectors.filter(s => s.id !== id); save(st); fillSectors(''); refresh();
 }
 
@@ -431,7 +442,7 @@ async function applyBackup(d) {
     const n = mergeData(d); return alert(`Juntado: ${n.add} novo(s), ${n.upd} atualizado(s), ${n.del} excluído(s)${n.dup ? ', ' + n.dup + ' duplicado(s) unificado(s)' : ''}.`);
   }
   if (!confirm('Substituir TODOS os dados atuais pelo backup?\n\nUma cópia dos dados atuais será guardada antes.')) return;
-  await safetyCopy(); st = fix(d); st.unitsCleaned = true; save(st); refresh();
+  await safetyCopy(); st = fix(d); st.unitsCleaned = true; dedupe(st); save(st); refresh();
 }
 $('restoreFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
@@ -454,4 +465,6 @@ $('mergeFile').onchange = async e => {
   catch { alert('Arquivo inválido.'); }
 };
 $('dirBtn').onclick = pickDir;
-$('ver').textContent = 'Versão 16 carregada';
+$('helpBtn').onclick = () => { $('helpVer').textContent = $('ver').textContent; $('helpDlg').showModal(); };
+$('helpClose').onclick = () => $('helpDlg').close();
+$('ver').textContent = 'Versão 17 carregada';
