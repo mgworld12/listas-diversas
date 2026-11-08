@@ -7,7 +7,7 @@ import { scanCode, resizeImage, codeFromImage } from './media.js';
 import { lookupProduct, fetchImage, lookupCnpj, parseNF, parseNFText, fetchNFPage, parseBill, cnpjFmt } from './docs.js';
 
 let st = await load(); { const dd = dedupe(st); if (dd) { save(st); setTimeout(() => alert(`${dd} registro(s) duplicado(s) foram unificados.`), 600); } }
-let editing = null; let editingDoc = null; let docItems = []; let listMode = false; let searches = []; let auto = false; let image = '';
+let view = ''; let editing = null; let editingDoc = null; let docItems = []; let listMode = false; let searches = []; let auto = false; let image = '';
 const $ = id => document.getElementById(id);
 const NEW = '__new__';
 const norm = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -61,9 +61,9 @@ $('pName').oninput = e => {
   if (id && st.sectors.some(s => s.id === id)) { $('regSector').value = id; auto = true; }
 };
 
-const cbs = { toggle, edit, remove, select, secMove, secEdit, secDel, stock, addLow, docEdit: editDoc, docDel: delDoc, refresh: () => refresh(), secManage: openSectors };
+const cbs = { toggle, edit, remove, select, secMove, secEdit, secDel, stock, addLow, docEdit: editDoc, docDel: delDoc, refresh: () => refresh(), secManage: openSectors, view: v => { view = v; refresh(); } };
 const refresh = () => {
-  render(st, listMode, cbs);
+  render(st, listMode, cbs, view);
   renderResults(st, searches, norm, { edit, drop: t => { searches = searches.filter(x => x !== t); refresh(); } });
   renderSaved(st, {
     xlsx: i => exportXlsx(st.saved[i].rows, st.saved[i].total, new Date(st.saved[i].date)).catch(xlsxErr),
@@ -71,8 +71,8 @@ const refresh = () => {
   });
   renderDocs(st, {
     del: delDoc, edit: editDoc, pay: payDoc, xlsx: list => exportDocs(list, st.sectors).catch(xlsxErr)
-  });
-  renderPrices(st);
+  }, view);
+  renderPrices(st, view);
   if (listMode) renderList(st, { price, store, qty, buyUnit });
   if ($('secDlg').open) renderSecList();
 };
@@ -313,7 +313,8 @@ $('regForm').onsubmit = e => {
   const sectorId = $('regSector').value;
   if (!sectorId || sectorId === NEW) return alert('Selecione um setor.');
   if (!(regType === 'produto' ? saveProduct(sectorId) : saveDoc(sectorId))) return;
-  save(st); refresh(); $('regDlg').close('ok');
+  view = regType; save(st); refresh(); $('regDlg').close('ok');   // mostra a aba do que acabou de ser cadastrado
+
 };
 function saveDoc(sectorId) {
   const cnpj = $('docCnpj').value.replace(/\D/g, ''), store = $('docStore').value.trim(), linkIn = $('docLinkIn').value.trim(), prev = editingDoc && st.docs.find(x => x.id === editingDoc);
@@ -399,11 +400,25 @@ function secDel(id) {
 
 function toggle(id) { const it = st.items.find(i => i.id === id); it.done = !it.done; it.u = Date.now(); save(st); refresh(); }
 function remove(id) { if (confirm('Excluir este item?')) { tomb(st, id); st.items = st.items.filter(i => i.id !== id); fix(st); save(st); refresh(); } }
-$('clearDone').onclick = () => {
-  const n = st.items.filter(i => i.done).length;
-  if (!n) return alert('Nenhum item concluído.');
-  if (confirm(`Remover ${n} item(ns) concluído(s)?`)) { st.items.filter(i => i.done).forEach(i => tomb(st, i.id)); st.items = st.items.filter(i => !i.done); fix(st); save(st); refresh(); }
-};
+// Enviar a lista (itens marcados ☑) pelo WhatsApp: texto pronto no aplicativo, para escolher o contato
+function sendList() {
+  const sel = st.items.filter(i => st.list.ids.includes(i.id));
+  if (!sel.length) return alert('Marque (☑) os produtos que vão na lista e toque em "Enviar lista".');
+  const lines = [`🛒 *Lista de compras* — ${new Date().toLocaleDateString('pt-BR')}`]; let total = 0, any = false;
+  const group = (title, its) => {
+    if (!its.length) return; lines.push('', title);
+    its.forEach(i => {
+      const q = Number(st.list.qtys[i.id]) || 0, p = Number(st.list.prices[i.id]) || 0, u = st.list.buyUnits[i.id] || 'unidade(s)', who = st.list.stores[i.id];
+      if (p) { any = true; total += p * (q || 1); }
+      lines.push('• ' + [i.name + (i.brand ? ` (${i.brand})` : ''), q ? `${q} ${u}` : '', p ? `R$ ${p.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '', who || ''].filter(Boolean).join(' — '));
+    });
+  };
+  st.sectors.forEach(sec => group(`${sec.icon} *${sec.name}*`, sel.filter(i => i.sectorId === sec.id)));
+  group('📦 *Outros*', sel.filter(i => !st.sectors.some(s => s.id === i.sectorId)));
+  if (any) lines.push('', `*Total estimado:* R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+  window.open('https://wa.me/?text=' + encodeURIComponent(lines.join('\n')), '_blank');
+}
+$('sendBtn').onclick = sendList;
 
 // ---------- Busca entre setores ----------
 $('searchForm').onsubmit = e => {
@@ -465,6 +480,7 @@ $('mergeFile').onchange = async e => {
   catch { alert('Arquivo inválido.'); }
 };
 $('dirBtn').onclick = pickDir;
+$('secBtn').onclick = openSectors;
 $('helpBtn').onclick = () => { $('helpVer').textContent = $('ver').textContent; $('helpDlg').showModal(); };
 $('helpClose').onclick = () => $('helpDlg').close();
-$('ver').textContent = 'Versão 17 carregada';
+$('ver').textContent = 'Versão 18 carregada';

@@ -20,8 +20,7 @@ export function stockState(it) {
 export const itemLine = (i, cur = 'BRL') => [i.name, i.qty != null && i.qty !== '' ? `${Number(i.qty).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} ${i.unit || ''}`.trim() : '', i.total != null && i.total !== '' ? money(Number(i.total), cur) : ''].filter(Boolean).join(' • ');
 export const info = it => [[it.qty, it.unit].filter(Boolean).join(' '), it.brand, it.content, it.volume].filter(Boolean).join(' • ');
 
-// ---------- Barra de setores (filtro) e tabela de produtos ----------
-const SEC = { id: '' };   // setor escolhido na barra: filtra a tabela de produtos e a de compras e contas
+// ---------- Abas (Nfs, Contas, Produtos) e produtos em cartões ----------
 // Tipo da conta: ícone + nome (+ 4 últimos números do cartão) + descrição
 export const contaTxt = d => {
   if (d.type === 'nf') return d.store || '';
@@ -29,69 +28,52 @@ export const contaTxt = d => {
   return [k ? `${k.icon} ${k.label}${d.kind === 'cartao' && d.card ? ' •••• ' + d.card : ''}` : '', d.desc].filter(Boolean).join(' • ');
 };
 const qtyInfo = it => [[it.qty, it.unit].filter(Boolean).join(' '), it.content, it.volume].filter(Boolean).join(' • ');
-function renderSecBar(st, cb) {
-  const bar = document.getElementById('secbar'); bar.replaceChildren();
-  if (SEC.id && !st.sectors.some(s => s.id === SEC.id)) SEC.id = '';
-  const mk = (id, label, n, color) => { const b = btn(label, 'Mostrar: ' + label, () => { SEC.id = id; cb.refresh(); }, 'secbtn' + (SEC.id === id ? ' on' : '')); b.style.setProperty('--sc', color); b.append(' ', el('span', 'n', n)); return b; };
-  bar.append(mk('', '📋 Todos', st.items.length + st.docs.length, 'var(--primary)'));
-  st.sectors.forEach(s => bar.append(mk(s.id, `${s.icon} ${s.name}`, st.items.filter(i => i.sectorId === s.id).length + st.docs.filter(d => d.sectorId === s.id).length, s.color)));
-  bar.append(btn('⚙️ Setores', 'Criar, editar, ordenar e excluir setores', cb.secManage, 'secbtn'));
-}
-function renderProducts(st, listMode, cb) {
-  const box = document.getElementById('prodPanel'); box.replaceChildren();
-  const idx = new Map(st.sectors.map((s, i) => [s.id, i]));
-  const items = st.items.filter(i => !SEC.id || i.sectorId === SEC.id)
-    .sort((a, b) => (a.done - b.done) || ((idx.get(a.sectorId) ?? 99) - (idx.get(b.sectorId) ?? 99)) || a.name.localeCompare(b.name, 'pt-BR'));
-  box.append(el('h2', '', `Produtos (${items.length})`));
-  if (!items.length) return box.append(el('p', 'empty', SEC.id ? 'Nenhum produto neste setor.' : 'Nenhum produto cadastrado. Use "Cadastrar Produto".'));
-  const secOf = it => st.sectors.find(s => s.id === it.sectorId);
-  const all = [
-    { h: '', c: 'chk', always: 1, chk: 1 },
-    { h: 'Setor', c: 'ic', always: 1, sec: 1 },
-    { h: 'Produto', always: 1, name: 1 },
-    { h: 'Marca / fabricante', get: i => [i.brand, i.maker].filter(Boolean).join(' / ') },
-    { h: 'Quantidade', c: 'nw', get: qtyInfo },
-    { h: 'Estoque', c: 'nw', stock: 1, any: items.some(i => stockState(i).n !== null) },
-    { h: 'Validade', c: 'nw', exp: 1, any: items.some(i => i.expiry) },
-    { h: '', c: 'nw', always: 1, acts: 1 }
-  ];
-  const cols = all.filter(c => c.always || (c.any !== undefined ? c.any : items.some(i => c.get(i))));
-  const t = el('table', 'dtable'), thead = el('thead'), hr = el('tr'), tb = el('tbody');
-  cols.forEach(c => hr.append(el('th', c.c || '', c.h))); thead.append(hr);
-  items.forEach(it => {
-    const tr = el('tr', it.done && !listMode ? 'done' : ''), S = stockState(it), sc = secOf(it); if (sc) tr.style.setProperty('--sc', sc.color);   // marca na cor do setor
-    cols.forEach(c => {
-      const td = el('td', c.c || ''); if (c.h) td.dataset.l = c.h;
-      if (c.chk) {
-        const k = el('input'); k.type = 'checkbox'; k.style.width = 'auto';
-        if (listMode) { k.checked = st.list.ids.includes(it.id); k.setAttribute('aria-label', 'Incluir na lista'); k.onchange = () => cb.select(it.id); }
-        else { k.checked = it.done; k.setAttribute('aria-label', 'Concluído'); k.onchange = () => cb.toggle(it.id); }
-        td.append(k);
-      } else if (c.sec) { const s = secOf(it); td.textContent = s ? s.icon : '—'; td.title = s ? s.name : 'Sem setor'; }
-      else if (c.name) {
-        const th = thumb(it); if (th) td.append(th);
-        td.append(el('strong', 'pname', it.name)); if (it.color) td.append(dot(it.color));
-        if (it.notes) td.append(el('div', 'notes', it.notes));
-      } else if (c.stock) {
-        if (S.n !== null) { const w = el('span', 'stockc' + (S.low ? ' bad' : '')); w.append(btn('−', 'Tirar 1 do estoque', () => cb.stock(it.id, -1), 'mv'), el('span', 'nn', S.n), btn('+', 'Somar 1 ao estoque', () => cb.stock(it.id, 1), 'mv')); td.append(w); }
-      } else if (c.exp) { if (it.expiry) { const s = el('span', S.expired ? 'bad' : S.soon ? 'soon' : '', it.expiry.split('-').reverse().join('/')); td.append(s); } }
-      else if (c.acts) {
-        const a = el('a', '', '🔍'); a.href = 'https://www.google.com/search?q=' + encodeURIComponent('"' + it.name + '"'); a.target = '_blank'; a.rel = 'noopener'; a.title = 'Buscar no Google';
-        td.append(a, btn('✏️', 'Editar', () => cb.edit(it.id)), btn('🗑️', 'Excluir', () => cb.remove(it.id)));
-      } else td.textContent = c.get(it);
-      tr.append(td);
-    });
-    tb.append(tr);
+const TABS = [['nf', 'Nfs', '#16a34a'], ['conta', 'Contas', '#0ea5e9'], ['produto', 'Produtos', '#f97316']];
+function renderTabs(st, view, cb) {
+  const bar = document.getElementById('tabs'); if (!bar) return; bar.replaceChildren();
+  const n = { nf: st.docs.filter(d => d.type === 'nf').length, conta: st.docs.filter(d => d.type === 'conta').length, produto: st.items.length };
+  TABS.forEach(([k, t, c]) => {
+    const b = btn(t, view === k ? 'Ocultar ' + t : 'Mostrar ' + t, () => cb.view(view === k ? '' : k), 'tabbtn' + (view === k ? ' on' : ''));
+    b.style.setProperty('--tc', c); b.setAttribute('aria-pressed', view === k); b.append(' ', el('span', 'n', n[k])); bar.append(b);
   });
-  t.append(thead, tb); const wrap = el('div', 'tscroll'); wrap.append(t); box.append(wrap);
 }
-export function render(st, listMode, cb) { renderAlerts(st, cb); renderSecBar(st, cb); renderProducts(st, listMode, cb); }
+function renderProducts(st, listMode, cb, view) {
+  const box = document.getElementById('prodPanel'); box.replaceChildren(); box.hidden = view !== 'produto'; if (box.hidden) return;
+  const idx = new Map(st.sectors.map((s, i) => [s.id, i]));
+  const items = [...st.items].sort((a, b) => ((idx.get(a.sectorId) ?? 99) - (idx.get(b.sectorId) ?? 99)) || a.name.localeCompare(b.name, 'pt-BR'));
+  box.append(el('h2', '', `Produtos (${items.length})`));
+  if (!items.length) return box.append(el('p', 'empty', 'Nenhum produto cadastrado. Use "Cadastrar Produto".'));
+  const grid = el('div', 'pgrid');
+  items.forEach(it => {
+    const sc = st.sectors.find(s => s.id === it.sectorId), S = stockState(it), card = el('div', 'pcard'), main = el('div', 'pmain');
+    if (sc) card.style.setProperty('--sc', sc.color);   // só ao passar o mouse: fundo clarinho na cor do setor
+    const head = el('label', 'phead'), k = el('input'); k.type = 'checkbox'; k.checked = st.list.ids.includes(it.id); k.setAttribute('aria-label', 'Selecionar para a lista'); k.onchange = () => cb.select(it.id);
+    head.append(k, el('strong', 'pname', it.name)); if (it.color) head.append(dot(it.color));
+    const dl = el('dl', 'pinfo');
+    [['Setor:', sc ? sc.name : '—'], ['Marca:', it.brand || ''], ['Quantidade:', qtyInfo(it)], ['Obs:', it.notes || '']].forEach(([l, v]) => dl.append(el('dt', '', l), el('dd', '', v)));
+    main.append(head, dl);
+    if (S.n !== null || it.expiry) {   // estoque (com − e +) e validade, só quando informados
+      const tags = el('div', 'tags');
+      if (S.n !== null) { const w = el('span', 'stockc tag' + (S.low ? ' bad' : '')); w.append('Estoque: ', btn('−', 'Tirar 1 do estoque', () => cb.stock(it.id, -1), 'mv'), el('span', 'nn', S.n), btn('+', 'Somar 1 ao estoque', () => cb.stock(it.id, 1), 'mv')); tags.append(w); }
+      if (it.expiry) tags.append(el('span', 'tag' + (S.expired ? ' bad' : S.soon ? ' warn' : ''), 'Validade: ' + it.expiry.split('-').reverse().join('/')));
+      main.append(tags);
+    }
+    const acts = el('div', 'pacts'), a = el('a', '', '🔍');   // pesquisar na internet com o nome entre aspas
+    a.href = 'https://www.google.com/search?q=' + encodeURIComponent('"' + it.name + '"'); a.target = '_blank'; a.rel = 'noopener'; a.title = 'Pesquisar na internet';
+    acts.append(a, btn('✏️', 'Editar', () => cb.edit(it.id)), btn('🗑️', 'Excluir', () => cb.remove(it.id)));
+    main.append(acts); card.append(main);
+    const th = thumb(it); if (th) { th.className = 'pimg'; card.append(th); }
+    grid.append(card);
+  });
+  box.append(grid);
+}
+export function render(st, listMode, cb, view) { renderAlerts(st, cb); renderTabs(st, view, cb); renderProducts(st, listMode, cb, view); }
 
 // Resultados das buscas: um grupo por termo; "×" remove o termo; clicar num resultado abre a edição
 export function renderResults(st, terms, norm, cb) {
   const box = document.getElementById('results'); box.replaceChildren(); box.hidden = !terms.length;
   terms.forEach(t => {
-    const found = st.items.filter(i => norm([i.name, i.code, i.brand, i.maker, i.content, i.notes].filter(Boolean).join(' ')).includes(norm(t)));
+    const found = st.items.filter(i => norm([i.name, i.code, i.brand, i.maker, i.content, i.notes, (st.sectors.find(x => x.id === i.sectorId) || {}).name].filter(Boolean).join(' ')).includes(norm(t)));
     const g = el('div', 'rgroup'), h = el('h3', '', `“${t}” — ${found.length} resultado(s)`);
     h.append(btn('×', 'Remover esta busca', () => cb.drop(t), 'x')); g.append(h);
     if (!found.length) g.append(el('p', 'empty', 'Nenhum item encontrado.'));
@@ -219,9 +201,9 @@ function charts(st) {
   wrap.append(c1, c2); return wrap;
 }
 // Histórico de preços dos itens das NFs (preço por unidade; só compara itens com o mesmo nome)
-const P = { q: '' }; let pst = null;
-export function renderPrices(st) {
-  pst = st;
+const P = { q: '' }; let pst = null, pview = '';
+export function renderPrices(st, view) {
+  pst = st; pview = view;
   const box = document.getElementById('pricePanel'); if (!box) return;
   const rows = new Map();
   st.docs.forEach(d => (d.items || []).forEach(i => {
@@ -229,11 +211,11 @@ export function renderPrices(st) {
     const qty = Number(i.qty) > 0 ? Number(i.qty) : 1, k = nz(i.name), r = rows.get(k) || { name: i.name, list: [] };
     r.list.push({ price: Number(i.total) / qty, date: d.date || '', store: d.store || '' }); rows.set(k, r);
   }));
-  box.hidden = !rows.size; if (!rows.size) return;
+  box.hidden = !rows.size || view !== 'nf'; if (box.hidden) return;
   let bar = box.querySelector('.pbar'), body = box.querySelector('.pbody');
   if (!bar) {
     bar = el('div', 'pbar noprint'); body = el('div', 'pbody');
-    const q = el('input'); q.type = 'search'; q.placeholder = 'Buscar item'; q.setAttribute('aria-label', 'Buscar item'); q.oninput = () => { P.q = q.value; renderPrices(pst); }; bar.append(q);
+    const q = el('input'); q.type = 'search'; q.placeholder = 'Buscar item'; q.setAttribute('aria-label', 'Buscar item'); q.oninput = () => { P.q = q.value; renderPrices(pst, pview); }; bar.append(q);
     box.replaceChildren(el('h2', '', 'Histórico de preços'), el('p', 'empty', 'Preço por unidade dos itens das NFs. Só compara itens com o mesmo nome.'), bar, body);
   }
   const f = nz(P.q), fmt = d => d.split('-').reverse().slice(0, 2).join('/');
@@ -263,58 +245,67 @@ function resumo(st) {
     charts(st));
   return det;
 }
-export function renderDocs(st, cb) {
-  cur = { st, cb };
-  const box = document.getElementById('docsPanel'); box.hidden = !st.docs.length;
-  if (!st.docs.length) return;
+export function renderDocs(st, cb, view) {
+  cur = { st, cb, view };
+  const box = document.getElementById('docsPanel');
+  box.hidden = !(view === 'nf' || view === 'conta'); if (box.hidden) return;
+  const mine = st.docs.filter(d => d.type === view), title = view === 'nf' ? 'Notas fiscais' : 'Contas';
+  if (!mine.length) { box.replaceChildren(el('h2', '', title), el('p', 'empty', view === 'nf' ? 'Nenhuma NF cadastrada. Use "Cadastrar NF".' : 'Nenhuma conta cadastrada. Use "Cadastrar Conta".')); return; }
   let bar = box.querySelector('.docbar'), body = box.querySelector('.docbody');
   if (!bar) {   // filtros: criados uma vez; só a tabela é redesenhada (o campo de busca não perde o foco)
     bar = el('div', 'docbar noprint'); body = el('div', 'docbody');
     const m = el('select'), t = el('select'), q = el('input'), x = btn('Exportar Excel', 'Salvar a lista filtrada em .xlsx', () => cur.cb.xlsx(shown), 'btn');
     m.setAttribute('aria-label', 'Mês'); q.type = 'search'; q.placeholder = 'Buscar estabelecimento ou CNPJ'; q.setAttribute('aria-label', 'Buscar');
     t.setAttribute('aria-label', 'Situação'); t.append(new Option('Todas as situações', ''), new Option('A pagar', 'pendente'), new Option('Pagas', 'paga'));
-    t.onchange = () => { F.t = t.value; renderDocs(cur.st, cur.cb); };
-    m.onchange = () => { F.m = m.value; renderDocs(cur.st, cur.cb); };
-    q.oninput = () => { F.q = q.value; renderDocs(cur.st, cur.cb); };
-    bar.append(m, t, q, x); box.replaceChildren(el('h2', '', 'Compras e contas'), bar, body);
+    t.onchange = () => { F.t = t.value; renderDocs(cur.st, cur.cb, cur.view); };
+    m.onchange = () => { F.m = m.value; renderDocs(cur.st, cur.cb, cur.view); };
+    q.oninput = () => { F.q = q.value; renderDocs(cur.st, cur.cb, cur.view); };
+    bar.append(m, t, q, x); box.replaceChildren(el('h2', '', title), bar, body);
   }
-  const m = bar.querySelector('select');
-  const months = [...new Set(st.docs.map(d => (d.date || '').slice(0, 7)).filter(Boolean))].sort().reverse();
+  box.querySelector('h2').textContent = title;
+  const [m, t] = bar.querySelectorAll('select'); t.hidden = view !== 'conta'; if (view !== 'conta') F.t = '';
+  const months = [...new Set(mine.map(d => (d.date || '').slice(0, 7)).filter(Boolean))].sort().reverse();
   F.m = fillSel(m, [['', 'Todos os meses'], ...months.map(x => [x, x.slice(5) + '/' + x.slice(0, 4)])], F.m);
+  t.value = F.t;
 
-  const cur_ = d => d.currency || 'BRL', q = nz(F.q);
-  const docs = [...st.docs].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  shown = docs.filter(d => (!F.m || (d.date || '').startsWith(F.m)) && (!SEC.id || d.sectorId === SEC.id) && (!F.t || d.status === F.t) &&
-    (!q || nz([d.store, d.cnpj, d.cnpj ? cnpjFmt(d.cnpj) : '', d.desc].join(' ')).includes(q)));
-  body.replaceChildren(resumo(st));
+  const cur_ = d => d.currency || 'BRL', q = nz(F.q), secOf = d => st.sectors.find(y => y.id === d.sectorId);
+  const docs = [...mine].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  shown = docs.filter(d => (!F.m || (d.date || '').startsWith(F.m)) && (!F.t || d.status === F.t) &&
+    (!q || nz([d.store, d.cnpj, d.cnpj ? cnpjFmt(d.cnpj) : '', d.desc, (secOf(d) || {}).name].join(' ')).includes(q)));
+  body.replaceChildren(resumo({ ...st, docs: mine }));
   if (!shown.length) return body.append(el('p', 'empty', 'Nenhum registro neste filtro.'));
-  const secOf = d => st.sectors.find(y => y.id === d.sectorId);
+  // Colunas: Setor (ícone), Estabelecimento, CNPJ, lápis, lixeira, Valor, Data, Situação, DANFE/Comprovante
   const all = [
+    { h: 'Setor', c: 'ic', always: 1, get: d => { const x = secOf(d); return x ? x.icon : '—'; }, tip: d => { const x = secOf(d); return x ? x.name : 'Sem setor'; } },
     { h: 'Estabelecimento', always: 1, name: 1 },
     { h: 'CNPJ', c: 'nw num', get: d => d.cnpj ? cnpjFmt(d.cnpj) : '' },
-    { h: 'Setor', c: 'ic', always: 1, get: d => { const x = secOf(d); return x ? x.icon : '—'; }, tip: d => { const x = secOf(d); return x ? x.name : 'Sem setor'; } },
-    { h: 'Referente a', get: d => contaTxt(d) },
+    { h: '', c: 'ic2', always: 1, edit: 1 },
+    { h: '', c: 'ic2', always: 1, del: 1 },
     { h: 'Valor', c: 'nw num val', always: 1, value: 1 },
     { h: 'Data', c: 'nw', always: 1, get: d => d.date ? d.date.split('-').reverse().join('/') : '' },
     { h: 'Situação', c: 'nw', pay: 1, get: d => d.status || '' },
-    { h: 'DANFE', c: 'nw', link: 1 }
+    { h: view === 'conta' ? 'Comprovante' : 'DANFE', c: 'nw', link: 1 }
   ];
   const cols = all.filter(c => c.always || shown.some(d => c.link ? d.link : c.get(d)));   // colunas sem nenhum dado ficam ocultas
-  const t = el('table', 'dtable'), thead = el('thead'), hr = el('tr'), tb = el('tbody'), tot = {};
+  const t2 = el('table', 'dtable'), thead = el('thead'), hr = el('tr'), tb = el('tbody'), tot = {};
   cols.forEach(c => hr.append(el('th', c.c || '', c.h))); thead.append(hr);
   shown.forEach(d => {
     tot[cur_(d)] = (tot[cur_(d)] || 0) + (d.value || 0);
-    const tr = el('tr'), sc = secOf(d); if (sc) tr.style.setProperty('--sc', sc.color);   // marca na cor do setor
+    const tr = el('tr'), sc = secOf(d); if (sc) tr.style.setProperty('--sc', sc.color);   // fundo clarinho na cor do setor ao passar o mouse
     cols.forEach(c => {
-      const td = el('td', c.c || ''); td.dataset.l = c.h;
-      if (c.name) {   // lápis e lixeira ficam ao lado do nome do estabelecimento
-        td.append(el('strong', '', d.store || d.desc || '—'), ' ', btn('✏️', 'Editar', () => cb.edit(d.id)), btn('🗑️', 'Excluir', () => cb.del(d.id)));
+      const td = el('td', c.c || ''); if (c.h) td.dataset.l = c.h;
+      if (c.name) {
+        const k = CONTA_TIPOS[d.kind];   // conta: ícone do tipo (gás, energia...) antes do nome
+        if (d.type === 'conta' && k) { const ik = el('span', 'kind', `${k.icon}${d.kind === 'cartao' && d.card ? ' ••' + d.card : ''} `); ik.title = k.label; td.append(ik); }
+        td.append(el('strong', '', d.store || d.desc || '—'));
         if (d.items && d.items.length) {   // itens da compra: recolhidos, abrem na setinha
           const det = el('details', 'items'); det.append(el('summary', '', `Itens (${d.items.length})`));
           d.items.forEach(i => det.append(el('div', 'notes', itemLine(i, cur_(d)))));
           td.append(det);
         }
-      } else if (c.value) { td.textContent = money(d.value || 0, cur_(d)); if (!d.value) { td.classList.add('zero'); td.title = 'Sem valor: use ✏️ para informar'; } }
+      } else if (c.edit) td.append(btn('✏️', 'Editar', () => cb.edit(d.id)));
+      else if (c.del) td.append(btn('🗑️', 'Excluir', () => cb.del(d.id)));
+      else if (c.value) { td.textContent = money(d.value || 0, cur_(d)); if (!d.value) { td.classList.add('zero'); td.title = 'Sem valor: use ✏️ para informar'; } }
       else if (c.pay) {   // contas: paga / a pagar (vencida em destaque) e botão para marcar como paga
         if (d.status === 'pendente') { const late = d.date && d.date < new Date().toLocaleDateString('sv-SE'); td.append(el('span', late ? 'bad' : 'soon', late ? '⚠️ Vencida ' : '⏳ A pagar '), btn('✔ Pagar', 'Marcar como paga', () => cb.pay(d.id), 'btn')); }
         else if (d.status === 'paga') { td.textContent = '✔ Paga'; if (d.paidOn) td.title = 'Paga em ' + d.paidOn.split('-').reverse().join('/'); }
@@ -329,6 +320,6 @@ export function renderDocs(st, cb) {
   const tf = el('tfoot'), fr = el('tr'), lab = el('td', '', Object.keys(tot).length > 1 ? 'Totais' : 'Total');
   if (vi > 0) lab.colSpan = vi;
   fr.append(lab, totalsCell(tot)); if (after > 0) { const e = el('td'); e.colSpan = after; fr.append(e); }
-  tf.append(fr); t.append(thead, tb, tf);
-  const wrap = el('div', 'tscroll'); wrap.append(t); body.append(wrap);
+  tf.append(fr); t2.append(thead, tb, tf);
+  const wrap = el('div', 'tscroll'); wrap.append(t2); body.append(wrap);
 }
