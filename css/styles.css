@@ -208,16 +208,17 @@ details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
 .tabbtn:hover{background:color-mix(in srgb,var(--tc) 10%,var(--card))}
 .tabbtn.on{background:color-mix(in srgb,var(--tc) 18%,var(--card))}
 .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
-.pcard{display:flex;gap:10px;justify-content:space-between;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--card)}
+.pcard{display:grid;grid-template-columns:1fr auto;grid-template-areas:"head head" "main img";column-gap:12px;row-gap:4px;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--card)}
 .pcard:hover{background:color-mix(in srgb,var(--sc,transparent) 14%,var(--card))}
-.pmain{flex:1;min-width:0}
-.phead{display:flex;align-items:center;gap:8px;font-size:1.1rem;margin:0 0 6px;cursor:pointer}
+.pmain{grid-area:main;min-width:0}
+.phead{grid-area:head;display:flex;align-items:center;gap:8px;font-size:1.1rem;margin:0;cursor:pointer}
 .phead input{width:auto}
 .pinfo{display:grid;grid-template-columns:max-content 1fr;gap:2px 8px;margin:0 0 6px;font-size:.88rem}
 .pinfo dt{font-weight:700}.pinfo dd{margin:0;overflow-wrap:anywhere}
 .pacts{display:flex;gap:8px;margin-top:6px}
 .pacts a,.pacts button{border:0;background:none;cursor:pointer;font-size:1.1rem;text-decoration:none;padding:2px}
-.pimg{width:112px;height:150px;border-radius:8px;object-fit:contain;background:#fff;border:1px solid var(--line);flex:none;align-self:flex-start}
+.pimg{grid-area:img;width:112px;height:auto;max-height:150px;object-fit:contain;border:0;border-radius:0;background:none;box-shadow:3px 3px 6px rgba(0,0,0,.22);align-self:start;justify-self:end}
+@media (prefers-color-scheme:light){.pimg{mix-blend-mode:multiply}}
 .dtable tbody tr:hover td{background:color-mix(in srgb,var(--sc,transparent) 14%,transparent)}
 .dtable th.ic2,.dtable td.ic2{width:1%;text-align:center;padding:8px 4px}
 .dtable .kind{margin-right:2px}
@@ -227,3 +228,19 @@ details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
 .pbc{display:inline-block;text-align:center;margin:2px 0 4px}
 .pbc svg{display:block;max-width:100%;height:34px}
 .pcode{font-family:'Courier New',monospace;font-size:.78rem;font-weight:700;letter-spacing:1px}
+
+/* Campos do cartão mais juntos, ícones do fim do cartão e lista de compras em tabela */
+.pf{display:flex;gap:4px;font-size:.92rem;margin:0 0 2px}.pf b{font-weight:700}
+.pacts{align-items:center}
+.psec{font-size:1.3rem;margin-right:16px}
+.lst{border-collapse:collapse;width:100%}
+.lst th,.lst td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle;text-align:left}
+.lst th{font-size:.8rem;color:var(--muted)}
+.qbox{display:inline-flex;align-items:center;gap:4px}
+.qbox input{width:3.4em;text-align:center;padding:4px 2px;-moz-appearance:textfield}
+.qbox input::-webkit-outer-spin-button,.qbox input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.qarr{display:inline-flex;flex-direction:column}
+.qarr button{border:0;background:none;cursor:pointer;font-size:.7rem;line-height:1.1;padding:1px 5px;color:var(--muted)}
+.qarr button:hover{color:var(--primary)}
+.lst img.lthumb{display:block;height:44px;width:auto;max-width:48px;object-fit:contain;margin:0 auto}
+.lst td input{max-width:100%}
