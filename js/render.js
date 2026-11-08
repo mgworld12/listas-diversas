@@ -1,5 +1,6 @@
 import { BUY_UNITS, CONTA_TIPOS } from './config.js';
 import { cnpjFmt } from './docs.js';
+import { barcodeSvg } from './barcode.js';
 // Usa textContent (nunca innerHTML) para evitar injeção de código.
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 const btn = (txt, title, fn, cls = '') => { const b = el('button', cls, txt); b.type = 'button'; b.title = title; b.onclick = fn; return b; };
@@ -50,8 +51,9 @@ function renderProducts(st, listMode, cb, view) {
     const head = el('label', 'phead'), k = el('input'); k.type = 'checkbox'; k.checked = st.list.ids.includes(it.id); k.setAttribute('aria-label', 'Selecionar para a lista'); k.onchange = () => cb.select(it.id);
     head.append(k, el('strong', 'pname', it.name)); if (it.color) head.append(dot(it.color));
     const dl = el('dl', 'pinfo');
-    [['Setor:', sc ? sc.name : '—'], ['Marca:', it.brand || ''], ['Quantidade:', qtyInfo(it)], ['Obs:', it.notes || '']].forEach(([l, v]) => dl.append(el('dt', '', l), el('dd', '', v)));
+    [['Setor:', sc ? sc.name : '—'], ['Marca:', it.brand || ''], ['Quantidade:', qtyInfo(it)]].forEach(([l, v]) => dl.append(el('dt', '', l), el('dd', '', v)));
     main.append(head, dl);
+    if (it.code) { const bc = el('div', 'pbc'), svg = barcodeSvg(it.code); if (svg) bc.append(svg); bc.append(el('div', 'pcode', it.code)); main.append(bc); }   // código de barras + número
     if (S.n !== null || it.expiry) {   // estoque (com − e +) e validade, só quando informados
       const tags = el('div', 'tags');
       if (S.n !== null) { const w = el('span', 'stockc tag' + (S.low ? ' bad' : '')); w.append('Estoque: ', btn('−', 'Tirar 1 do estoque', () => cb.stock(it.id, -1), 'mv'), el('span', 'nn', S.n), btn('+', 'Somar 1 ao estoque', () => cb.stock(it.id, 1), 'mv')); tags.append(w); }

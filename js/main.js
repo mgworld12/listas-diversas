@@ -483,4 +483,4 @@ $('dirBtn').onclick = pickDir;
 $('secBtn').onclick = openSectors;
 $('helpBtn').onclick = () => { $('helpVer').textContent = $('ver').textContent; $('helpDlg').showModal(); };
 $('helpClose').onclick = () => $('helpDlg').close();
-$('ver').textContent = 'Versão 18 carregada';
+$('ver').textContent = 'Versão 19 carregada';

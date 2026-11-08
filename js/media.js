@@ -43,16 +43,16 @@ export async function scanCode() {
   });
 }
 
-// Qualquer foto ou print vira um quadrado 128×128 (recorte centralizado), tamanho único
-export function resizeImage(file, size = 128) {
+// Qualquer foto ou print vira uma imagem de tamanho padrão (retrato 180x240): a figura inteira, centralizada, sobre fundo branco
+export function resizeImage(file, w = 180, h = 240) {
   return new Promise((ok, err) => {
     const img = new Image(), url = URL.createObjectURL(file);
     img.onload = () => {
-      const c = document.createElement('canvas'); c.width = c.height = size;
-      const m = Math.min(img.width, img.height), g = c.getContext('2d');
-      g.fillStyle = '#fff'; g.fillRect(0, 0, size, size);
-      g.drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, size, size);
-      URL.revokeObjectURL(url); ok(c.toDataURL('image/jpeg', 0.8));
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const g = c.getContext('2d'), k = Math.min(w / img.width, h / img.height), dw = img.width * k, dh = img.height * k;
+      g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+      g.imageSmoothingQuality = 'high'; g.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      URL.revokeObjectURL(url); ok(c.toDataURL('image/jpeg', 0.85));
     };
     img.onerror = () => { URL.revokeObjectURL(url); err(new Error('imagem')); }; img.src = url;
   });
