@@ -1,4 +1,4 @@
-import { BUY_UNITS, CONTA_TIPOS } from './config.js';
+import { BUY_UNITS, CONTA_TIPOS, PACKS } from './config.js';
 import { cnpjFmt } from './docs.js';
 import { barcodeSvg } from './barcode.js';
 // Usa textContent (nunca innerHTML) para evitar injeção de código.
@@ -50,9 +50,9 @@ function renderProducts(st, listMode, cb, view) {
     if (sc) card.style.setProperty('--sc', sc.color);   // só ao passar o mouse: fundo clarinho na cor do setor
     const head = el('label', 'phead'), k = el('input'); k.type = 'checkbox'; k.checked = st.list.ids.includes(it.id); k.setAttribute('aria-label', 'Selecionar para a lista'); k.onchange = () => cb.select(it.id);
     head.append(k, el('strong', 'pname', it.name)); if (it.color) head.append(dot(it.color));
-    const dl = el('dl', 'pinfo');
-    [['Setor:', sc ? sc.name : '—'], ['Marca:', it.brand || ''], ['Quantidade:', qtyInfo(it)]].forEach(([l, v]) => dl.append(el('dt', '', l), el('dd', '', v)));
-    main.append(head, dl);
+    const field = (l, v) => { if (!v) return; const f = el('div', 'pf'); f.append(el('b', '', l), ' ', el('span', '', v)); main.append(f); };
+    field('Marca:', it.brand);
+    field((PACKS[it.pack] ? PACKS[it.pack].abbr : 'Qtd.') + ':', qtyInfo(it));   // Qtd.: / Pt.: / Cx.: / Un.: / Pct.:
     if (it.code) { const bc = el('div', 'pbc'), svg = barcodeSvg(it.code); if (svg) bc.append(svg); bc.append(el('div', 'pcode', it.code)); main.append(bc); }   // código de barras + número
     if (S.n !== null || it.expiry) {   // estoque (com − e +) e validade, só quando informados
       const tags = el('div', 'tags');
@@ -60,10 +60,12 @@ function renderProducts(st, listMode, cb, view) {
       if (it.expiry) tags.append(el('span', 'tag' + (S.expired ? ' bad' : S.soon ? ' warn' : ''), 'Validade: ' + it.expiry.split('-').reverse().join('/')));
       main.append(tags);
     }
-    const acts = el('div', 'pacts'), a = el('a', '', '🔍');   // pesquisar na internet com o nome entre aspas
+    // ícones no fim do cartão: primeiro o do setor, depois (afastados) pesquisar, editar e excluir
+    const acts = el('div', 'pacts'), si = el('span', 'psec', sc ? sc.icon : '—'), a = el('a', '', '🔍');
+    si.title = sc ? 'Setor: ' + sc.name : 'Sem setor';
     a.href = 'https://www.google.com/search?q=' + encodeURIComponent('"' + it.name + '"'); a.target = '_blank'; a.rel = 'noopener'; a.title = 'Pesquisar na internet';
-    acts.append(a, btn('✏️', 'Editar', () => cb.edit(it.id)), btn('🗑️', 'Excluir', () => cb.remove(it.id)));
-    main.append(acts); card.append(main);
+    acts.append(si, a, btn('✏️', 'Editar', () => cb.edit(it.id)), btn('🗑️', 'Excluir', () => cb.remove(it.id)));
+    main.append(acts); card.append(head, main);
     const th = thumb(it); if (th) { th.className = 'pimg'; card.append(th); }
     grid.append(card);
   });
@@ -90,50 +92,44 @@ export function renderResults(st, terms, norm, cb) {
   });
 }
 
-// Quadro da lista: itens marcados, agrupados por setor, com quantidade a comprar e preço
+// Lista de compras (itens marcados), em tabela: Produto | Quantidade (com ▲▼) | Imagem pequena. Os preços aparecem só no botão "💲 Preços".
+const LIST = { prices: false };
+export const togglePrices = () => (LIST.prices = !LIST.prices);
 export function renderList(st, cb) {
   const body = document.getElementById('listBody'); body.replaceChildren();
   document.getElementById('listDate').textContent = new Date().toLocaleDateString('pt-BR');
-  const heads = ['Item', 'Qtd. a comprar', 'Preço unit. (R$)', 'Subtotal', 'Loja / Mercado', 'Observações'];
-  const field = (type, val, ph, label, fn, extra = {}) => {
-    const i = el('input'); i.type = type; i.value = val; i.placeholder = ph; i.setAttribute('aria-label', label);
-    Object.assign(i, extra); i.oninput = () => fn(i.value); return i;
-  };
-  let n = 0;
-  st.sectors.forEach(sec => {
-    const items = st.items.filter(i => i.sectorId === sec.id && st.list.ids.includes(i.id));
-    if (!items.length) return;
-    body.append(el('h3', 'list-sec', `${sec.icon} ${sec.name}`));
-    const wrap = el('div', 'tscroll'), t = el('table', 'ltable'), head = el('tr');
-    heads.forEach((x, i) => head.append(el('th', 'c' + (i + 1), x)));
-    t.append(head);
-    items.forEach(it => {
-      n++; const tr = el('tr'), td = (c, text) => { const d = el('td', c, text); return d; };
-      const c = [td(), td(), td(), td('sub'), td(), td('notes', it.notes || '')];
-      const t = thumb(it), nm = el('div'); nm.append(nameEl(it)); if (info(it)) nm.append(el('div', 'notes', info(it)));
-      if (t) { const h = el('div', 'withimg'); h.append(t, nm); c[0].append(h); } else c[0].append(nm);
-      const sel = el('select'); BUY_UNITS.forEach(u => sel.append(new Option(u, u)));
-      sel.value = st.list.buyUnits[it.id] || BUY_UNITS[0]; sel.setAttribute('aria-label', 'Tipo de ' + it.name); sel.onchange = () => cb.buyUnit(it.id, sel.value);
-      const w = el('div', 'buy'); w.append(field('number', st.list.qtys[it.id] || '', '1', 'Quantidade a comprar de ' + it.name, v => cb.qty(it.id, v), { min: '1', step: '1' }), sel); c[1].append(w);
-      c[2].append(field('number', st.list.prices[it.id] || '', '0,00', 'Preço de ' + it.name, v => cb.price(it.id, v), { min: '0', step: '0.01' }));
-      c[3].dataset.id = it.id;
-      c[4].append(field('text', st.list.stores[it.id] || '', 'Loja ou mercado', 'Loja de ' + it.name, v => cb.store(it.id, v), { maxLength: 60 }));
-      c.forEach((d, i) => { if (i) d.dataset.l = heads[i]; tr.append(d); }); t.append(tr);
-    });
-    wrap.append(t); body.append(wrap);
+  const idx = new Map(st.sectors.map((s, i) => [s.id, i]));
+  const items = st.items.filter(i => st.list.ids.includes(i.id)).sort((a, b) => ((idx.get(a.sectorId) ?? 99) - (idx.get(b.sectorId) ?? 99)) || a.name.localeCompare(b.name, 'pt-BR'));
+  if (!items.length) { document.getElementById('listTotal').textContent = ''; return body.append(el('p', 'empty', 'Marque (☑) os produtos para montar a lista.')); }
+  const pr = LIST.prices, heads = ['Produto', 'Quantidade', 'Imagem', ...(pr ? ['Preço unit. (R$)', 'Subtotal', 'Loja / Mercado'] : [])];
+  const t = el('table', 'lst'), head = el('tr'); heads.forEach(h => head.append(el('th', '', h))); t.append(head);
+  items.forEach(it => {
+    const tr = el('tr'), c = heads.map(h => { const td = el('td'); td.dataset.l = h; return td; });
+    c[0].append(el('strong', '', it.name)); if (it.brand) c[0].append(el('div', 'notes', it.brand));
+    const inp = el('input'); inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.value = Number(st.list.qtys[it.id]) || 1; inp.setAttribute('aria-label', 'Quantidade de ' + it.name);
+    const set = v => { v = Math.max(1, Math.round(Number(v) || 1)); inp.value = v; cb.qty(it.id, v); };
+    inp.onchange = () => set(inp.value);
+    const arr = el('span', 'qarr'); arr.append(btn('▲', 'Aumentar', () => set(Number(inp.value) + 1)), btn('▼', 'Diminuir', () => set(Number(inp.value) - 1)));
+    const box = el('span', 'qbox'); box.append(inp, arr); if (PACKS[it.pack]) box.append(el('span', 'notes', PACKS[it.pack].abbr)); c[1].append(box);
+    const th = thumb(it); if (th) { th.className = 'lthumb'; c[2].append(th); }
+    if (pr) {
+      const f = (type, val, ph, label, fn, extra = {}) => { const i = el('input'); i.type = type; i.value = val; i.placeholder = ph; i.setAttribute('aria-label', label); Object.assign(i, extra); i.oninput = () => fn(i.value); return i; };
+      c[3].append(f('number', st.list.prices[it.id] || '', '0,00', 'Preço de ' + it.name, v => cb.price(it.id, v), { min: '0', step: '0.01' }));
+      c[4].className = 'sub'; c[4].dataset.id = it.id;
+      c[5].append(f('text', st.list.stores[it.id] || '', 'Loja ou mercado', 'Loja de ' + it.name, v => cb.store(it.id, v), { maxLength: 60 }));
+    }
+    c.forEach(td => tr.append(td)); t.append(tr);
   });
-  if (!n) body.append(el('p', 'empty', 'Marque os itens nos setores para montar a lista.'));
+  const wrap = el('div', 'tscroll'); wrap.append(t); body.append(wrap);
   updateTotals(st);
 }
 
-// Subtotal = preço unitário × quantidade a comprar (1 se vazia)
+// Total estimado (só quando há preços) e subtotais da coluna de preços
 export function updateTotals(st) {
-  let total = 0;
-  document.querySelectorAll('#listBody .sub').forEach(td => {
-    const id = td.dataset.id, v = (Number(st.list.prices[id]) || 0) * (Number(st.list.qtys[id]) || 1);
-    total += v; td.textContent = money(v);
-  });
-  document.getElementById('listTotal').textContent = 'Total: ' + money(total);
+  let total = 0, any = false;
+  st.items.filter(i => st.list.ids.includes(i.id)).forEach(i => { const p = Number(st.list.prices[i.id]) || 0; if (p) any = true; total += p * (Number(st.list.qtys[i.id]) || 1); });
+  document.querySelectorAll('#listBody .sub').forEach(td => { td.textContent = money((Number(st.list.prices[td.dataset.id]) || 0) * (Number(st.list.qtys[td.dataset.id]) || 1)); });
+  document.getElementById('listTotal').textContent = any ? 'Total: ' + money(total) : '';
 }
 
 // Listas salvas com nome e data
@@ -280,7 +276,7 @@ export function renderDocs(st, cb, view) {
   const all = [
     { h: 'Setor', c: 'ic', always: 1, get: d => { const x = secOf(d); return x ? x.icon : '—'; }, tip: d => { const x = secOf(d); return x ? x.name : 'Sem setor'; } },
     { h: 'Estabelecimento', always: 1, name: 1 },
-    { h: 'CNPJ', c: 'nw num', get: d => d.cnpj ? cnpjFmt(d.cnpj) : '' },
+    { h: 'CNPJ', c: 'nw num', always: 1, get: d => d.cnpj ? cnpjFmt(d.cnpj) : '' },
     { h: '', c: 'ic2', always: 1, edit: 1 },
     { h: '', c: 'ic2', always: 1, del: 1 },
     { h: 'Valor', c: 'nw num val', always: 1, value: 1 },

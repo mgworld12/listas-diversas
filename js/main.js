@@ -1,7 +1,7 @@
-import { ICONS, KEYWORDS, CONTA_TIPOS } from './config.js';
+import { ICONS, KEYWORDS, CONTA_TIPOS, PACKS } from './config.js';
 import { load, save, slug, fix, uid, tomb, importJSON, docFps, itemFps, nz } from './storage.js';
 import { initSync, exportLote, mergeFile, mergeData, dedupe, pickDir, saveBackup, readDirBackup, safetyCopy } from './sync.js';
-import { render, renderResults, renderList, updateTotals, renderSaved, renderDocs, renderPrices, stockState, itemLine } from './render.js';
+import { render, renderResults, renderList, updateTotals, renderSaved, renderDocs, renderPrices, togglePrices, stockState, itemLine } from './render.js';
 import { exportXlsx, exportDocs, snapshot } from './export.js';
 import { scanCode, resizeImage, codeFromImage } from './media.js';
 import { lookupProduct, fetchImage, lookupCnpj, parseNF, parseNFText, fetchNFPage, parseBill, cnpjFmt } from './docs.js';
@@ -136,14 +136,14 @@ function openReg(type, it = null, doc = null) {
   $('docStoreL').textContent = type === 'nf' ? 'Estabelecimento:' : 'Instituição:';
   $('docDescWrap').hidden = type !== 'conta'; $('docKindWrap').hidden = type !== 'conta'; $('docContaWrap').hidden = type !== 'conta'; $('nfExtra').hidden = type !== 'nf';
   $('docDate').required = !prod; $('pName').required = prod; $('docDate').classList.remove('warn');
-  ['regCode', 'docStore', 'docCnpj', 'docValue', 'docDesc', 'docCard', 'docLinkIn', 'nfPaste', 'pName', 'pMaker', 'pBrand', 'pComp', 'pQty', 'pPortion', 'pVol', 'pStock', 'pMin', 'pExp', 'pSpecs'].forEach(i => $(i).value = '');
+  ['regCode', 'docStore', 'docCnpj', 'docValue', 'docDesc', 'docCard', 'docLinkIn', 'nfPaste', 'pName', 'pMaker', 'pBrand', 'pComp', 'pQty', 'pPortion', 'pVol', 'pPack', 'pStock', 'pMin', 'pExp', 'pSpecs'].forEach(i => $(i).value = '');
   fillCur('BRL'); docVal = 0; fillKinds(''); $('docStatus').value = 'paga'; dateLabel(); setImage(''); fillSectors(''); rmsg(''); renderItemsBox(); showNfExtra();
   $('docDate').value = type === 'nf' ? new Date().toLocaleDateString('sv-SE') : '';
   if (it) {
     const set = (id, v) => { $(id).value = v ?? ''; };
     set('regCode', it.code); set('pName', it.name); set('pMaker', it.maker); set('pBrand', it.brand); set('pComp', it.comp);
     set('pQty', it.content); set('pPortion', it.portion); set('pVol', it.volume); set('pSpecs', it.notes);
-    set('pStock', it.stock); set('pMin', it.min); set('pExp', it.expiry);
+    set('pStock', it.stock); set('pMin', it.min); set('pExp', it.expiry); set('pPack', it.pack);
     fillSectors(it.sectorId); setImage(it.image || '');
   }
   if (doc) {
@@ -270,7 +270,7 @@ async function readProduct(code) {
   const fill = (id, v) => { if (v && !$(id).value) $(id).value = v; };
   const p = st.codes[code];
   if (p) {
-    fill('pName', p.name); fill('pMaker', p.maker); fill('pBrand', p.brand); fill('pComp', p.comp); fill('pQty', p.content); fill('pPortion', p.portion); fill('pVol', p.volume); fill('pSpecs', p.notes);
+    fill('pName', p.name); fill('pMaker', p.maker); fill('pBrand', p.brand); fill('pComp', p.comp); fill('pQty', p.content); fill('pPortion', p.portion); fill('pVol', p.volume); fill('pSpecs', p.notes); if (p.pack && !$('pPack').value) $('pPack').value = p.pack;
     if (!$('regSector').value && p.sectorId && st.sectors.some(s => s.id === p.sectorId)) fillSectors(p.sectorId);
     if (p.image && !image) setImage(p.image);
     return rmsg('Produto conhecido: dados preenchidos. Confira e salve.');
@@ -336,7 +336,7 @@ function saveDoc(sectorId) {
 function saveProduct(sectorId) {
   const g = id => $(id).value.trim(), n = id => $(id).value === '' ? '' : Number($(id).value);
   const data = { name: g('pName'), sectorId, code: g('regCode'), maker: g('pMaker'), brand: g('pBrand'), comp: g('pComp'), content: g('pQty'), portion: g('pPortion'), volume: g('pVol'),
-    stock: n('pStock'), min: n('pMin'), expiry: $('pExp').value, notes: g('pSpecs'), image };
+    pack: $('pPack').value, stock: n('pStock'), min: n('pMin'), expiry: $('pExp').value, notes: g('pSpecs'), image };
   const fps = itemFps(data), twin = st.items.find(i => i.id !== editing && itemFps(i).some(f => fps.includes(f)));
   if (twin) { alert(`Já existe esse produto: "${twin.name}"${twin.brand ? ' (' + twin.brand + ')' : ''}.\n\nNão é permitido cadastrar em duplicidade. Use ✏️ para alterar o existente.`); return false; }
   st.learn[norm(data.name)] = sectorId;
@@ -408,7 +408,7 @@ function sendList() {
   const group = (title, its) => {
     if (!its.length) return; lines.push('', title);
     its.forEach(i => {
-      const q = Number(st.list.qtys[i.id]) || 0, p = Number(st.list.prices[i.id]) || 0, u = st.list.buyUnits[i.id] || 'unidade(s)', who = st.list.stores[i.id];
+      const q = Number(st.list.qtys[i.id]) || 1, p = Number(st.list.prices[i.id]) || 0, u = (PACKS[i.pack] && PACKS[i.pack].label) || st.list.buyUnits[i.id] || 'unidade(s)', who = st.list.stores[i.id];
       if (p) { any = true; total += p * (q || 1); }
       lines.push('• ' + [i.name + (i.brand ? ` (${i.brand})` : ''), q ? `${q} ${u}` : '', p ? `R$ ${p.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '', who || ''].filter(Boolean).join(' — '));
     });
@@ -480,7 +480,9 @@ $('mergeFile').onchange = async e => {
   catch { alert('Arquivo inválido.'); }
 };
 $('dirBtn').onclick = pickDir;
+$('pPack').replaceChildren(new Option('Qtd. (padrão)', ''), ...Object.entries(PACKS).map(([k, v]) => new Option(`${v.nome} (${v.abbr})`, k)));
+$('pricesBtn').onclick = () => { $('pricesBtn').textContent = togglePrices() ? '💲 Ocultar preços' : '💲 Preços'; refresh(); };
 $('secBtn').onclick = openSectors;
 $('helpBtn').onclick = () => { $('helpVer').textContent = $('ver').textContent; $('helpDlg').showModal(); };
 $('helpClose').onclick = () => $('helpDlg').close();
-$('ver').textContent = 'Versão 19 carregada';
+$('ver').textContent = 'Versão 20 carregada';

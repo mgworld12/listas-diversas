@@ -1,5 +1,5 @@
 import { cnpjFmt } from './docs.js';
-import { CONTA_TIPOS } from './config.js';
+import { CONTA_TIPOS, PACKS } from './config.js';
 const contaTxt = d => { if (d.type === 'nf') return d.store || ''; const k = CONTA_TIPOS[d.kind]; return [k ? k.label + (d.kind === 'cartao' && d.card ? ' final ' + d.card : '') : '', d.desc].filter(Boolean).join(' - '); };
 // A biblioteca SheetJS é carregada só quando você clica em "Salvar .xlsx"
 const loadLib = () => window.XLSX ? Promise.resolve() : new Promise((ok, err) => {
@@ -12,7 +12,7 @@ export function snapshot(st) {
   const rows = []; let total = 0;
   st.sectors.forEach(sec => st.items.filter(i => i.sectorId === sec.id && st.list.ids.includes(i.id)).forEach(it => {
     const p = Number(st.list.prices[it.id]) || 0, b = Number(st.list.qtys[it.id]) || 0, sub = p * (b || 1); total += sub;
-    rows.push([sec.name, it.name, it.color ? it.color.name : '', [it.qty, it.unit].filter(Boolean).join(' '), it.content || '', b || '', b ? (st.list.buyUnits[it.id] || 'unidade(s)') : '', p || '', sub || '', st.list.stores[it.id] || '', it.notes || '']);
+    rows.push([sec.name, it.name, it.color ? it.color.name : '', [it.qty, it.unit].filter(Boolean).join(' '), it.content || '', b || '', b ? ((PACKS[it.pack] && PACKS[it.pack].label) || st.list.buyUnits[it.id] || 'unidade(s)') : '', p || '', sub || '', st.list.stores[it.id] || '', it.notes || '']);
   }));
   return { rows, total };
 }

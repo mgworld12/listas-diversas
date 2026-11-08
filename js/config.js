@@ -31,3 +31,10 @@ export const CONTA_TIPOS = {
   pix: { icon: '💠', label: 'Pix' },
   loteria: { icon: '🍀', label: 'Loterias' }
 };
+// Tipo de embalagem da quantidade do produto: sigla mostrada no cartão ("Cx.: 3") e nome usado na lista enviada
+export const PACKS = {
+  pote: { abbr: 'Pt.', label: 'pote(s)', nome: 'Pote' },
+  caixa: { abbr: 'Cx.', label: 'caixa(s)', nome: 'Caixa' },
+  unidade: { abbr: 'Un.', label: 'unidade(s)', nome: 'Unidade' },
+  pacote: { abbr: 'Pct.', label: 'pacote(s)', nome: 'Pacote' }
+};
