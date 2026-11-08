@@ -18,13 +18,13 @@
     <button type="button" id="prodBtn" class="rbtn"><span>📦</span>Cadastrar Produto</button>
   </nav>
 
-  <nav id="secbar" class="secbar noprint" aria-label="Setores"></nav>
+  <nav id="tabs" class="tabs noprint" aria-label="Listas"></nav>
 
   <form id="searchForm" class="toolbar">
     <input type="search" id="q" placeholder="Buscar item" aria-label="Buscar item">
     <button type="submit" class="btn">Buscar</button>
     <button type="button" id="listMode" class="btn" aria-pressed="false">Criar lista</button>
-    <button type="button" id="clearDone" class="btn">Remover concluídos</button>
+    <button type="button" id="sendBtn" class="btn">Enviar lista</button>
   </form>
 
   <div id="results" class="panel" hidden></div>
@@ -44,7 +44,7 @@
 
   <section id="alerts" class="panel noprint" hidden></section>
 
-  <section id="prodPanel" class="panel"></section>
+  <section id="prodPanel" class="panel" hidden></section>
 
   <section id="docsPanel" class="panel" hidden></section>
 
@@ -68,6 +68,7 @@
   <footer class="backup noprint">
     <button type="button" id="backupBtn" class="btn">Salvar backup</button>
     <button type="button" id="restoreBtn" class="btn">Restaurar backup</button>
+    <button type="button" id="secBtn" class="btn">⚙️ Setores</button>
     <button type="button" id="helpBtn" class="btn">❓ Ajuda</button>
     <input type="file" id="restoreFile" accept="application/json" hidden>
   </footer>
