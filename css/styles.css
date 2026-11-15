@@ -217,8 +217,8 @@ details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
 .pinfo dt{font-weight:700}.pinfo dd{margin:0;overflow-wrap:anywhere}
 .pacts{display:flex;gap:8px;margin-top:6px}
 .pacts a,.pacts button{border:0;background:none;cursor:pointer;font-size:1.1rem;text-decoration:none;padding:2px}
-.pimg{grid-area:img;width:112px;height:auto;max-height:150px;object-fit:contain;border:0;border-radius:0;background:none;box-shadow:3px 3px 6px rgba(0,0,0,.22);align-self:start;justify-self:end}
-@media (prefers-color-scheme:light){.pimg{mix-blend-mode:multiply}}
+.pimg{grid-area:img;width:112px;height:150px;object-fit:contain;border:0;border-radius:0;background:none;filter:drop-shadow(3px 3px 4px rgba(0,0,0,.25));align-self:start;justify-self:end}
+@media (prefers-color-scheme:light){.pimg.blend{mix-blend-mode:multiply}}
 .dtable tbody tr:hover td{background:color-mix(in srgb,var(--sc,transparent) 14%,transparent)}
 .dtable th.ic2,.dtable td.ic2{width:1%;text-align:center;padding:8px 4px}
 .dtable .kind{margin-right:2px}
@@ -244,3 +244,19 @@ details.paste summary{cursor:pointer;font-weight:600;margin:10px 0 4px}
 .qarr button:hover{color:var(--primary)}
 .lst img.lthumb{display:block;height:44px;width:auto;max-width:48px;object-fit:contain;margin:0 auto}
 .lst td input{max-width:100%}
+
+/* Botão Cadastrar, imagem do produto no cadastro e lista de compras em colunas fixas */
+.cadwrap{position:relative;display:flex;justify-content:center;margin:0 0 16px}
+.cadbtn{flex:0 0 auto;padding:12px 28px;font-size:1.05rem;border-radius:99px}
+.cadmenu{position:absolute;top:100%;margin-top:6px;z-index:30;min-width:220px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.22);padding:6px}
+.cadmenu button{display:block;width:100%;text-align:left;border:0;background:none;color:var(--text);font:inherit;font-size:1.05rem;padding:12px 14px;border-radius:8px;cursor:pointer}
+.cadmenu button:hover{background:color-mix(in srgb,var(--primary) 12%,transparent)}
+.imgprev{width:96px;height:128px;object-fit:contain;border:1px dashed var(--line);border-radius:6px;background:repeating-conic-gradient(#e5e7eb 0 25%,#fff 0 50%) 0 0/16px 16px}
+.imgadj{margin:8px 0}.imgadj input[type=range]{width:100%;padding:0}.imgadj .chk{display:flex;align-items:center;gap:6px;font-weight:400}.imgadj .chk input{width:auto}
+.lst{table-layout:fixed;width:auto}
+.lst th,.lst td{overflow:hidden}
+.lst .lname{white-space:nowrap}
+.lst td input[type=text]{width:100%}
+.lst tbody tr td:nth-child(3) input{text-align:right}
+.ltotal td{background:#fde047;color:#0b1f5c;font-weight:700;border-bottom:0}
+.ltotal td.tv{text-align:right}
