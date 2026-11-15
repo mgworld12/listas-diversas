@@ -1,10 +1,10 @@
 import { ICONS, KEYWORDS, CONTA_TIPOS, PACKS } from './config.js';
 import { load, save, slug, fix, uid, tomb, importJSON, docFps, itemFps, nz } from './storage.js';
 import { initSync, exportLote, mergeFile, mergeData, dedupe, pickDir, saveBackup, readDirBackup, safetyCopy } from './sync.js';
-import { render, renderResults, renderList, updateTotals, renderSaved, renderDocs, renderPrices, togglePrices, stockState, itemLine } from './render.js';
+import { render, renderResults, renderList, updateTotals, renderSaved, renderDocs, renderPrices, itemLine } from './render.js';
 import { exportXlsx, exportDocs, snapshot } from './export.js';
-import { scanCode, resizeImage, codeFromImage } from './media.js';
-import { lookupProduct, fetchImage, lookupCnpj, parseNF, parseNFText, fetchNFPage, parseBill, cnpjFmt } from './docs.js';
+import { scanCode, productImage, codeFromImage } from './media.js';
+import { lookupProduct, fetchImage, lookupCnpj, parseNF, parseNFText, fetchNFPage, parseBill, cnpjFmt, isNFKey } from './docs.js';
 
 let st = await load(); { const dd = dedupe(st); if (dd) { save(st); setTimeout(() => alert(`${dd} registro(s) duplicado(s) foram unificados.`), 600); } }
 let view = ''; let editing = null; let editingDoc = null; let docItems = []; let listMode = false; let searches = []; let auto = false; let image = '';
@@ -17,7 +17,7 @@ const xlsxErr = () => alert('Não foi possível gerar o .xlsx. Verifique a conex
 function ask(kind, init = {}) {
   return new Promise(res => {
     const dlg = $('dlg');
-    $('dlgTitle').textContent = { sector: init.name ? 'Editar setor' : 'Novo setor', unit: 'Nova unidade', color: 'Nova cor' }[kind];
+    $('dlgTitle').textContent = { sector: init.name ? 'Editar tipo' : 'Novo tipo', unit: 'Nova unidade', color: 'Nova cor' }[kind];
     $('dlgName').value = init.name || ''; $('dlgColor').value = init.color || '#4f46e5';
     $('dlgIcons').hidden = kind !== 'sector';
     $('dlgColorLabel').hidden = kind === 'unit';
@@ -39,13 +39,13 @@ function ask(kind, init = {}) {
 function fillSectors(value = $('regSector').value) {
   const s = $('regSector'); s.replaceChildren();
   const add = (v, t, dis) => { const o = new Option(t, v); o.disabled = !!dis; s.append(o); };
-  add('', 'Selecione o setor...', true);
+  add('', 'Selecione o tipo...', true);
   [...st.sectors].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')).forEach(x => add(x.id, `${x.icon} ${x.name}`));
-  add(NEW, '+ Adicionar...'); s.value = value || '';
+  add(NEW, '+ Adicionar...'); s.value = value || ''; cardToggle();
 }
 $('regSector').onchange = async e => {
   auto = false;
-  if (e.target.value !== NEW) return;
+  if (e.target.value !== NEW) return cardToggle();
   const n = await ask('sector'), name = n && n.name.toUpperCase(), same = name && st.sectors.find(s => nz(s.name) === nz(name));
   if (same) fillSectors(same.id);   // já existe um setor com esse nome: usa o existente
   else if (name) {
@@ -61,7 +61,7 @@ $('pName').oninput = e => {
   if (id && st.sectors.some(s => s.id === id)) { $('regSector').value = id; auto = true; }
 };
 
-const cbs = { toggle, edit, remove, select, secMove, secEdit, secDel, stock, addLow, docEdit: editDoc, docDel: delDoc, refresh: () => refresh(), secManage: openSectors, view: v => { view = v; refresh(); } };
+const cbs = { toggle, edit, remove, select, secMove, secEdit, secDel, docEdit: editDoc, docDel: delDoc, refresh: () => refresh(), secManage: openSectors, view: v => { view = v; refresh(); } };
 const refresh = () => {
   render(st, listMode, cbs, view);
   renderResults(st, searches, norm, { edit, drop: t => { searches = searches.filter(x => x !== t); refresh(); } });
@@ -73,36 +73,45 @@ const refresh = () => {
     del: delDoc, edit: editDoc, pay: payDoc, xlsx: list => exportDocs(list, st.sectors).catch(xlsxErr)
   }, view);
   renderPrices(st, view);
-  if (listMode) renderList(st, { price, store, qty, buyUnit });
+  if (listMode) renderList(st, { price, store, qty, buyUnit, note });
   if ($('secDlg').open) renderSecList();
 };
 
-// ---------- Imagem do produto ----------
-function setImage(v) { image = v; $('imgPrev').hidden = $('imgDel').hidden = !v; if (v) $('imgPrev').src = v; else $('imgPrev').removeAttribute('src'); }
+// ---------- Imagem do produto: tamanho padrão e fundo transparente ----------
+let imgSrc = null;   // foto original escolhida (permite ajustar o fundo sem escolher de novo)
+function setImage(v) {
+  image = v; $('imgPrev').hidden = $('imgDel').hidden = !v; $('imgAdj').hidden = !(v && imgSrc);
+  if (v) $('imgPrev').src = v; else $('imgPrev').removeAttribute('src');
+}
+async function useImage(src, reset = true) {
+  imgSrc = src; if (reset) { $('imgTol').value = 40; $('imgKeep').checked = false; }
+  try { setImage(await productImage(src, { tol: Number($('imgTol').value), keep: $('imgKeep').checked })); }
+  catch { imgSrc = null; setImage(''); alert('Não foi possível usar essa imagem.'); }
+}
 $('imgBtn').onclick = () => $('imgFile').click();
-$('imgDel').onclick = () => setImage('');
+$('imgDel').onclick = () => { imgSrc = null; setImage(''); };
 $('imgFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  try { setImage(await resizeImage(f)); } catch { return alert('Não foi possível usar essa imagem.'); }
-  if ($('regCode').value.trim()) return;
+  await useImage(f);
+  if ($('regCode').value.trim() || regType !== 'produto') return;
   const c = await codeFromImage(f);   // se a foto mostrar o código de barras, os dados são buscados sozinhos
   if (c) { $('regCode').value = c; rmsg('Código lido da foto.'); readProduct(c); }
-  else rmsg('A foto foi usada como imagem do produto. Não achei um código de barras nela; preencha os dados.');
+  else rmsg('A foto foi usada como imagem do produto. Não achei um código de barras nela.');
 };
+let imgTimer = 0;
+$('imgTol').oninput = () => { clearTimeout(imgTimer); imgTimer = setTimeout(() => { if (imgSrc) useImage(imgSrc, false); }, 200); };
+$('imgKeep').onchange = () => { if (imgSrc) useImage(imgSrc, false); };
 $('regPhoto').onclick = () => { showBody(); $('imgFile').click(); };
 
-// Tipo da conta (gás, energia, condomínio, água, cartão, Pix, loterias)
-function fillKinds(value = '') {
-  const s = $('docKind'); s.replaceChildren(new Option('Tipo da conta (opcional)', ''), ...Object.entries(CONTA_TIPOS).map(([k, v]) => new Option(`${v.icon} ${v.label}`, k)));
-  s.value = value; $('docCardWrap').hidden = value !== 'cartao';
-}
-$('docKind').onchange = () => { $('docCardWrap').hidden = $('docKind').value !== 'cartao'; };
-function dateLabel() { $('docDateL').textContent = regType === 'conta' ? ($('docStatus').value === 'pendente' ? 'Vencimento:' : 'Data do pagamento:') : 'Data:'; }
-$('docStatus').onchange = dateLabel;
+// Tipo de pagamento "Cartão de crédito" pede os 4 últimos números do cartão
+function isCard(id) { const s = st.sectors.find(x => x.id === id); return !!s && nz(s.name) === 'cartao de credito'; }
+function cardToggle() { $('docCardWrap').hidden = !isCard($('regSector').value); }
+let docPending = false;   // conta a pagar (boleto, conta de consumo): o dia é o vencimento
+function dateLabel() { $('docDateL').textContent = docPending ? 'Vencimento:' : 'Data:'; }
 
 // ---------- Janela única de cadastro: NF, Conta e Produto ----------
-const TITLES = { nf: 'Cadastrar NF', conta: 'Cadastrar Conta', produto: 'Cadastrar Produto' };
-let regType = 'nf', docKey = '', docLink = '';
+const TITLES = { pagamento: 'Cadastrar Pagamento', produto: 'Cadastrar Produto' };
+let regType = 'pagamento', docType = 'conta', docKey = '', docLink = '';
 const rmsg = t => { $('regMsg').textContent = t; };
 const showBody = () => { $('regChoice').hidden = true; $('regBody').hidden = false; $('regSave').hidden = false; };
 
@@ -129,30 +138,27 @@ $('docCur').onchange = e => {
   setValue(docVal);
 };
 function openReg(type, it = null, doc = null) {
-  regType = type; editing = it ? it.id : null; editingDoc = doc ? doc.id : null; docKey = ''; docLink = ''; docItems = []; auto = false;
+  regType = type; editing = it ? it.id : null; editingDoc = doc ? doc.id : null; docKey = ''; docLink = ''; docItems = []; docType = doc ? doc.type : 'conta'; docPending = false; auto = false; imgSrc = null;
   const prod = type === 'produto';
   $('regTitle').textContent = it ? 'Editar produto' : doc ? 'Editar registro' : TITLES[type];
   $('docFields').hidden = prod; $('prodFields').hidden = !prod; $('regPhoto').hidden = !prod;
-  $('docStoreL').textContent = type === 'nf' ? 'Estabelecimento:' : 'Instituição:';
-  $('docDescWrap').hidden = type !== 'conta'; $('docKindWrap').hidden = type !== 'conta'; $('docContaWrap').hidden = type !== 'conta'; $('nfExtra').hidden = type !== 'nf';
-  $('docDate').required = !prod; $('pName').required = prod; $('docDate').classList.remove('warn');
-  ['regCode', 'docStore', 'docCnpj', 'docValue', 'docDesc', 'docCard', 'docLinkIn', 'nfPaste', 'pName', 'pMaker', 'pBrand', 'pComp', 'pQty', 'pPortion', 'pVol', 'pPack', 'pStock', 'pMin', 'pExp', 'pSpecs'].forEach(i => $(i).value = '');
-  fillCur('BRL'); docVal = 0; fillKinds(''); $('docStatus').value = 'paga'; dateLabel(); setImage(''); fillSectors(''); rmsg(''); renderItemsBox(); showNfExtra();
-  $('docDate').value = type === 'nf' ? new Date().toLocaleDateString('sv-SE') : '';
-  if (it) {
+  $('docDate').required = !prod; $('regSector').required = !prod; $('pName').required = prod; $('docDate').classList.remove('warn');
+  ['regCode', 'docStore', 'docCnpj', 'docValue', 'docCard', 'nfPaste', 'pName', 'pBrand', 'pMaker', 'pComp', 'pQty', 'pPortion', 'pVol', 'pPack', 'pStock', 'pMin', 'pExp', 'pSpecs'].forEach(i => { $(i).value = ''; });
+  fillCur('BRL'); docVal = 0; setImage(''); fillSectors(''); rmsg(''); renderItemsBox(); showNfExtra(); dateLabel();
+  $('docDate').value = prod ? '' : new Date().toLocaleDateString('sv-SE');
+  if (it) {   // produtos antigos: os campos que saíram da tela continuam guardados
     const set = (id, v) => { $(id).value = v ?? ''; };
-    set('regCode', it.code); set('pName', it.name); set('pMaker', it.maker); set('pBrand', it.brand); set('pComp', it.comp);
-    set('pQty', it.content); set('pPortion', it.portion); set('pVol', it.volume); set('pSpecs', it.notes);
-    set('pStock', it.stock); set('pMin', it.min); set('pExp', it.expiry); set('pPack', it.pack);
-    fillSectors(it.sectorId); setImage(it.image || '');
+    set('regCode', it.code); set('pName', it.name); set('pBrand', it.brand); set('pMaker', it.maker); set('pComp', it.comp); set('pQty', it.content); set('pPortion', it.portion);
+    set('pVol', it.volume); set('pPack', it.pack); set('pStock', it.stock); set('pMin', it.min); set('pExp', it.expiry); set('pSpecs', it.notes);
+    fillSectors(it.sectorId || ''); setImage(it.image || '');
   }
   if (doc) {
-    docKey = doc.key || ''; docLink = doc.link || ''; docItems = (doc.items || []).map(i => ({ ...i }));
-    $('regCode').value = doc.key || ''; $('docStore').value = doc.store || ''; $('docCnpj').value = doc.cnpj ? maskCnpj(doc.cnpj) : ''; $('docDesc').value = doc.desc || '';
-    fillKinds(doc.kind || ''); $('docCard').value = doc.card || ''; $('docStatus').value = doc.status || 'paga'; $('docLinkIn').value = doc.type === 'conta' ? (doc.link || '') : ''; dateLabel();
-    fillCur(doc.currency || 'BRL'); setValue(doc.value || 0); $('docDate').value = doc.date || ''; fillSectors(doc.sectorId || '');
-    renderItemsBox(); showNfExtra();
+    docKey = doc.key || ''; docLink = doc.link || ''; docItems = (doc.items || []).map(i => ({ ...i })); docPending = doc.status === 'pendente';
+    $('regCode').value = doc.key || ''; $('docStore').value = doc.store || ''; $('docCnpj').value = doc.cnpj ? maskCnpj(doc.cnpj) : ''; $('docCard').value = doc.card || '';
+    fillCur('BRL'); setValue(doc.value || 0); $('docDate').value = doc.date || ''; fillSectors(doc.sectorId || '');
+    dateLabel(); renderItemsBox(); showNfExtra();
   }
+  cardToggle();
   const ready = !!(it || doc);   // edição abre direto nos campos
   $('regChoice').hidden = ready; $('regBody').hidden = !ready; $('regSave').hidden = !ready;
   $('regDlg').returnValue = ''; $('regDlg').showModal();
@@ -169,15 +175,19 @@ function setDocDate(iso, approx) { $('docDate').value = iso; $('docDate').classL
 $('docDate').oninput = $('docDate').onchange = () => $('docDate').classList.remove('warn');
 function delDoc(id) { if (confirm('Excluir este registro?')) { tomb(st, id); st.docs = st.docs.filter(d => d.id !== id); save(st); refresh(); } }
 function payDoc(id) { const d = st.docs.find(x => x.id === id); if (!d) return; d.status = 'paga'; d.paidOn = new Date().toLocaleDateString('sv-SE'); d.u = Date.now(); save(st); refresh(); }
-function editDoc(id) { const d = st.docs.find(x => x.id === id); if (d) openReg(d.type, null, d); }
+function editDoc(id) { const d = st.docs.find(x => x.id === id); if (d) openReg('pagamento', null, d); }
 // Nome do estabelecimento pelo CNPJ: fica guardado depois da primeira consulta (e vale também sem internet)
 async function storeName(cnpj) {
   if (st.cnpjs[cnpj]) return st.cnpjs[cnpj];
   const n = await lookupCnpj(cnpj); if (n) { st.cnpjs[cnpj] = n; save(st); } return n;
 }
-$('nfBtn').onclick = () => openReg('nf');
-$('billBtn').onclick = () => openReg('conta');
-$('prodBtn').onclick = () => openReg('produto');
+// Botão "Cadastrar": abre a lista com Pagamento e Produto
+const cadMenu = $('cadMenu');
+$('cadBtn').onclick = e => { e.stopPropagation(); cadMenu.hidden = !cadMenu.hidden; $('cadBtn').setAttribute('aria-expanded', String(!cadMenu.hidden)); };
+$('cadPay').onclick = () => { cadMenu.hidden = true; openReg('pagamento'); };
+$('cadProd').onclick = () => { cadMenu.hidden = true; openReg('produto'); };
+document.addEventListener('click', () => { cadMenu.hidden = true; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cadMenu.hidden = true; });
 $('regType').onclick = () => { showBody(); $('regCode').focus(); };
 $('regScan').onclick = async () => { const c = await scanCode(); if (c) { showBody(); $('regCode').value = c; readCode(c); } };
 
@@ -187,14 +197,18 @@ $('regCode').oninput = e => { clearTimeout(readTimer); readTimer = setTimeout(()
 $('regCode').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(readTimer); readCode(e.target.value); } };
 function readCode(text) {
   text = text.trim(); if (!text) return;
-  return regType === 'nf' ? readNF(text) : regType === 'conta' ? readBill(text) : readProduct(text);
+  if (regType === 'produto') return readProduct(text);
+  if (looksNF(text)) return readNF(text);
+  const k = parseNF(text);   // chave de NF (44 dígitos, UF/CNPJ/modelo válidos) ou link do QR Code; o resto é boleto, conta de consumo ou Pix
+  if (k && (k.link || isNFKey(k.key))) return readNF(text);
+  return readBill(text);
 }
 async function readNF(text) {
   if (text.length > 300 && /Dados dos Produtos|Chave de Acesso|Valor Total/i.test(text)) { $('regCode').value = ''; return applyNFText(text); }   // página inteira colada no campo do código
   const r = parseNF(text);
   if (!r) { const n = text.replace(/\D/g, '').length; return rmsg(n && n < 44 && !/^https?:/i.test(text) ? `A chave da nota tem 44 números; faltam ${44 - n}.` : 'Não encontrei a chave de acesso (44 dígitos) neste código.'); }
   const dup = st.docs.find(d => d.key === r.key && d.id !== editingDoc); if (dup) return openDup(dup, r.link);
-  docKey = r.key; docLink = r.link; $('docCnpj').value = maskCnpj(r.cnpj); showNfExtra();
+  docKey = r.key; docLink = r.link; docType = 'nf'; docPending = false; dateLabel(); $('docCnpj').value = maskCnpj(r.cnpj); showNfExtra();
   if (r.date) setDocDate(r.date, false);
   else {   // a chave só informa o mês e o ano da emissão: o dia precisa ser conferido
     const [y, m] = r.ym.split('-').map(Number), now = new Date(), same = now.getFullYear() === y && now.getMonth() + 1 === m;
@@ -210,7 +224,7 @@ async function readNF(text) {
 }
 // Documento já cadastrado: abre o registro existente para completar ou corrigir (valor, itens, setor...), em vez de recusar
 function openDup(dup, link, text) {
-  $('regDlg').close(); openReg(dup.type, null, dup);
+  $('regDlg').close(); openReg('pagamento', null, dup);
   if (!docLink && link) { docLink = link; showNfExtra(); }
   rmsg(`Este documento já estava cadastrado (${dup.store || 'sem nome'}${dup.date ? ', ' + dup.date.split('-').reverse().join('/') : ''}). Abri o registro para você completar ou corrigir.` +
     (dup.type === 'nf' ? ' Para trazer data, valor e itens, copie a página da DANFE e use "Colar da área de transferência".' : ''));
@@ -225,6 +239,7 @@ function applyNFText(text, quiet = false) {
     const dup = st.docs.find(d => d.key === r.key && d.id !== editingDoc); if (dup) { openDup(dup, '', text); return false; }
     docKey = r.key; $('regCode').value = r.key;
   }
+  docType = 'nf'; docPending = false; dateLabel();
   if (r.cnpj) { $('docCnpj').value = maskCnpj(r.cnpj); if (r.store) st.cnpjs[r.cnpj] = r.store; }
   const cur = () => $('docStore').value.trim();
   if (r.store && (!cur() || cur() === autoStore)) $('docStore').value = autoStore = r.store;
@@ -250,18 +265,19 @@ async function clipNF(auto) {
   } finally { clipBusy = false; }
 }
 $('nfClip').onclick = () => clipNF(false);
-document.addEventListener('visibilitychange', () => { if (!document.hidden && $('regDlg').open && regType === 'nf') clipNF(true); });
-addEventListener('focus', () => { if ($('regDlg').open && regType === 'nf') clipNF(true); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && $('regDlg').open && regType === 'pagamento') clipNF(true); });
+addEventListener('focus', () => { if ($('regDlg').open && regType === 'pagamento') clipNF(true); });
 let pasteTimer = 0;
 $('nfPaste').oninput = e => { clearTimeout(pasteTimer); pasteTimer = setTimeout(() => { if (e.target.value.trim()) applyNFText(e.target.value); }, 400); };
 function readBill(text) {
   const r = parseBill(text);
-  if (!r) { const n = text.replace(/\D/g, '').length; return rmsg(n && n < 44 && !text.startsWith('000201') ? '' : 'Código não reconhecido. Use o código de barras do boleto ou da conta (44 a 48 dígitos) ou o QR Code do Pix.'); }
+  if (!r) { const n = text.replace(/\D/g, '').length; return rmsg(n && n < 44 && !text.startsWith('000201') ? '' : 'Código não reconhecido. Use o QR Code da nota, o código de barras do boleto ou da conta (44 a 48 dígitos) ou o QR Code do Pix.'); }
   const dup = r.key && st.docs.find(d => d.key === r.key && d.id !== editingDoc); if (dup) return openDup(dup, '');
-  docKey = r.key; $('docStore').value = r.store; $('docDesc').value = r.desc; if (r.kind && !$('docKind').value) fillKinds(r.kind);
-  $('docStatus').value = r.type === 'pix' ? 'paga' : 'pendente'; dateLabel();   // boleto e conta de consumo: a pagar (o dia é o vencimento); Pix: já pago
+  docType = 'conta'; docKey = r.key; $('docStore').value = r.store;
+  const tipo = r.kind && st.sectors.find(s => s.id === 'tipo-' + r.kind); if (tipo && !$('regSector').value) fillSectors(tipo.id);   // Pix, água, energia: sugere o tipo
+  docPending = r.type !== 'pix'; dateLabel();   // boleto e conta de consumo: a pagar (o dia é o vencimento); Pix: já pago
   if (r.value) { fillCur('BRL'); setValue(r.value); } if (r.date) $('docDate').value = r.date;
-  rmsg(r.date ? 'Lido. O dia é o vencimento; confira os dados e o CNPJ.' : 'Lido. Informe o dia e confira os dados.');
+  rmsg(r.date ? 'Lido. O dia é o vencimento; confira os dados e informe o CNPJ.' : 'Lido. Informe o dia e confira os dados.');
 }
 async function readProduct(code) {
   code = code.trim(); rmsg('');
@@ -269,23 +285,16 @@ async function readProduct(code) {
   if (dup) { $('regDlg').close(); alert(`Produto já cadastrado: "${dup.name}". Abrindo para edição.`); return openReg('produto', dup); }
   const fill = (id, v) => { if (v && !$(id).value) $(id).value = v; };
   const p = st.codes[code];
-  if (p) {
-    fill('pName', p.name); fill('pMaker', p.maker); fill('pBrand', p.brand); fill('pComp', p.comp); fill('pQty', p.content); fill('pPortion', p.portion); fill('pVol', p.volume); fill('pSpecs', p.notes); if (p.pack && !$('pPack').value) $('pPack').value = p.pack;
-    if (!$('regSector').value && p.sectorId && st.sectors.some(s => s.id === p.sectorId)) fillSectors(p.sectorId);
-    if (p.image && !image) setImage(p.image);
-    return rmsg('Produto conhecido: dados preenchidos. Confira e salve.');
-  }
+  if (p) { fill('pName', p.name); fill('pBrand', p.brand); if (p.image && !image) setImage(p.image); return rmsg('Produto conhecido: dados preenchidos. Confira e salve.'); }
   if (!/^\d+$/.test(code) || ![8, 12, 13, 14].includes(code.length)) return;
   rmsg('Procurando nas bases públicas...');
   try {
     const f = await lookupProduct(code);
     if ($('regCode').value.trim() !== code) return;
-    if (!f) return rmsg('Não encontrado nas bases públicas. Preencha os dados; o app lembrará este código.');
-    fill('pName', f.name); fill('pMaker', f.maker); fill('pBrand', f.brand); fill('pComp', f.comp); fill('pQty', f.quantity); fill('pPortion', f.portion); fill('pVol', f.volume); fill('pSpecs', f.specs);
-    $('pName').oninput({ target: $('pName') });
-    if (!$('regSector').value && f.food && st.sectors.some(s => s.id === 'mercado')) { $('regSector').value = 'mercado'; auto = true; }
+    if (!f) return rmsg('Não encontrado nas bases públicas. Digite o nome e a marca; o app lembrará este código.');
+    fill('pName', f.name); fill('pBrand', f.brand);
     rmsg('Dados encontrados nas bases públicas. Confira e salve.');
-    if (f.image && !image) try { setImage(await resizeImage(await fetchImage(f.image))); } catch {}
+    if (f.image && !image) { try { await useImage(await fetchImage(f.image)); } catch {} }
   } catch { rmsg('Sem conexão com as bases públicas. Preencha manualmente.'); }
 }
 
@@ -310,22 +319,21 @@ $('docCnpj').oninput = async e => {
 $('regForm').onsubmit = e => {
   if (e.submitter && e.submitter.value === 'cancel') return;   // "Cancelar" fecha a janela normalmente
   e.preventDefault();
-  const sectorId = $('regSector').value;
-  if (!sectorId || sectorId === NEW) return alert('Selecione um setor.');
-  if (!(regType === 'produto' ? saveProduct(sectorId) : saveDoc(sectorId))) return;
-  view = regType; save(st); refresh(); $('regDlg').close('ok');   // mostra a aba do que acabou de ser cadastrado
-
+  const sectorId = $('regSector').value, prod = regType === 'produto';
+  if (!prod && (!sectorId || sectorId === NEW)) return alert('Selecione o tipo de pagamento.');
+  if (!(prod ? saveProduct(sectorId === NEW ? '' : sectorId) : saveDoc(sectorId))) return;
+  view = prod ? 'produto' : docType; save(st); refresh(); $('regDlg').close('ok');   // mostra a aba do que acabou de ser cadastrado
 };
 function saveDoc(sectorId) {
-  const cnpj = $('docCnpj').value.replace(/\D/g, ''), store = $('docStore').value.trim(), linkIn = $('docLinkIn').value.trim(), prev = editingDoc && st.docs.find(x => x.id === editingDoc);
-  if (regType === 'conta' && linkIn && !/^https?:\/\//i.test(linkIn)) { alert('O link do comprovante deve começar com http:// ou https://'); return false; }
+  const cnpj = $('docCnpj').value.replace(/\D/g, ''), store = $('docStore').value.trim(), prev = editingDoc && st.docs.find(x => x.id === editingDoc);
+  if (cnpj && cnpj.length !== 14) { alert('O CNPJ deve ter exatamente 14 números (00.000.000/0000-00).'); $('docCnpj').focus(); return false; }
   if (!docVal && !confirm('O valor está zerado. Salvar assim mesmo?\n\nVocê pode editar o registro depois (✏️).')) return false;
-  const data = { type: regType, sectorId, store, cnpj, date: $('docDate').value, value: docVal || 0, currency: $('docCur').value, desc: $('docDesc').value.trim(), key: docKey, link: regType === 'conta' ? linkIn : docLink, items: docItems,
-    status: regType === 'conta' ? $('docStatus').value : '', paidOn: regType === 'conta' && $('docStatus').value === 'paga' ? ((prev && prev.paidOn) || $('docDate').value) : '',
-    kind: regType === 'conta' ? $('docKind').value : '', card: regType === 'conta' && $('docKind').value === 'cartao' ? $('docCard').value.replace(/\D/g, '').slice(-4) : '' };
+  const status = docPending ? 'pendente' : (prev && prev.status === 'paga' ? 'paga' : '');
+  const data = { type: docType, sectorId, store, cnpj, date: $('docDate').value, value: docVal || 0, currency: 'BRL', desc: (prev && prev.desc) || '', key: docKey, link: docLink, items: docItems,
+    status, paidOn: status === 'paga' ? ((prev && prev.paidOn) || '') : '', kind: '', card: isCard(sectorId) ? $('docCard').value.replace(/\D/g, '').slice(-4) : '' };
   const fps = docFps(data), twin = st.docs.find(x => x.id !== editingDoc && docFps(x).some(f => fps.includes(f)));
   if (twin) {
-    alert(`Já existe um registro igual: ${twin.store || twin.desc || 'sem nome'}${twin.date ? ', ' + twin.date.split('-').reverse().join('/') : ''}, ${Number(twin.value || 0).toLocaleString('pt-BR', { style: 'currency', currency: twin.currency || 'BRL' })}.\n\nNão é permitido cadastrar em duplicidade. Se for outro lançamento, diferencie em "Referente a"; ou use ✏️ no registro existente.`);
+    alert(`Já existe um registro igual: ${twin.store || twin.desc || 'sem nome'}${twin.date ? ', ' + twin.date.split('-').reverse().join('/') : ''}, ${Number(twin.value || 0).toLocaleString('pt-BR', { style: 'currency', currency: twin.currency || 'BRL' })}.\n\nNão é permitido cadastrar em duplicidade. Use ✏️ no registro existente.`);
     return false;
   }
   if (cnpj.length === 14 && store) st.cnpjs[cnpj] = store;
@@ -339,18 +347,11 @@ function saveProduct(sectorId) {
     pack: $('pPack').value, stock: n('pStock'), min: n('pMin'), expiry: $('pExp').value, notes: g('pSpecs'), image };
   const fps = itemFps(data), twin = st.items.find(i => i.id !== editing && itemFps(i).some(f => fps.includes(f)));
   if (twin) { alert(`Já existe esse produto: "${twin.name}"${twin.brand ? ' (' + twin.brand + ')' : ''}.\n\nNão é permitido cadastrar em duplicidade. Use ✏️ para alterar o existente.`); return false; }
-  st.learn[norm(data.name)] = sectorId;
+  if (sectorId) st.learn[norm(data.name)] = sectorId;
   if (data.code) st.codes[data.code] = { ...data };
   if (editing) Object.assign(st.items.find(i => i.id === editing), data, { u: Date.now() });
   else st.items.push({ id: uid(), u: Date.now(), done: false, qty: '', unit: '', color: null, ...data });
   return true;
-}
-// Estoque: botões − e + no cartão; "estoque baixo" vai direto para a lista de compras
-function stock(id, d) { const it = st.items.find(i => i.id === id); if (!it) return; it.stock = Math.max(0, (Number(it.stock) || 0) + d); it.u = Date.now(); save(st); refresh(); }
-function addLow() {
-  const ids = st.items.filter(i => stockState(i).low).map(i => i.id); if (!ids.length) return;
-  if (!listMode) $('listMode').click();
-  ids.forEach(id => { if (!st.list.ids.includes(id)) st.list.ids.push(id); }); save(st); refresh();
 }
 function edit(id) { const it = st.items.find(i => i.id === id); if (it) openReg('produto', it); }
 
@@ -361,7 +362,7 @@ $('secClose').onclick = () => $('secDlg').close();
 $('secAdd').onclick = async () => {
   const n = await ask('sector'); if (!n) return;
   const name = n.name.toUpperCase();
-  if (st.sectors.some(s => nz(s.name) === nz(name))) return alert('Já existe um setor com esse nome.');
+  if (st.sectors.some(s => nz(s.name) === nz(name))) return alert('Já existe um tipo com esse nome.');
   st.sectors.push({ id: slug(name) + '-' + Date.now().toString(36), name, icon: n.icon, color: n.color }); save(st); fillSectors(); refresh();
 };
 function renderSecList() {
@@ -370,13 +371,13 @@ function renderSecList() {
   const b = (txt, title, fn) => { const e = mk('button', '', txt); e.type = 'button'; e.title = title; e.onclick = fn; return e; };
   st.sectors.forEach(s => {
     const n = st.items.filter(x => x.sectorId === s.id).length + st.docs.filter(d => d.sectorId === s.id).length, r = mk('div', 'rrow');
-    const lim = mk('input'); lim.type = 'number'; lim.min = '0'; lim.step = '0.01'; lim.placeholder = 'Limite/mês R$'; lim.title = 'Limite de gasto por mês neste setor (R$): avisa quando chegar perto'; lim.style.width = '120px'; lim.value = st.budget[s.id] || '';
+    const lim = mk('input'); lim.type = 'number'; lim.min = '0'; lim.step = '0.01'; lim.placeholder = 'Limite/mês R$'; lim.title = 'Limite de gasto por mês neste tipo (R$): avisa quando chegar perto'; lim.style.width = '120px'; lim.value = st.budget[s.id] || '';
     lim.onchange = () => { const v = Number(lim.value) || 0; if (v > 0) st.budget[s.id] = v; else delete st.budget[s.id]; save(st); refresh(); };
     r.append(mk('span', '', s.icon), mk('strong', '', s.name), mk('span', 'notes', `${n} registro(s)`), lim,
       b('↑', 'Subir', () => secMove(s.id, -1)), b('↓', 'Descer', () => secMove(s.id, 1)), b('✏️', 'Editar', () => secEdit(s.id)), b('🗑️', 'Excluir', () => secDel(s.id)));
     box.append(r);
   });
-  if (!st.sectors.length) box.append(mk('p', 'empty', 'Nenhum setor. Crie o primeiro.'));
+  if (!st.sectors.length) box.append(mk('p', 'empty', 'Nenhum tipo. Crie o primeiro.'));
 }
 
 // ---------- Setores: reordenar, editar, excluir ----------
@@ -388,37 +389,44 @@ function secMove(id, d) {
 async function secEdit(id) {
   const s = st.sectors.find(x => x.id === id), n = await ask('sector', s); if (!n) return;
   const name = n.name.toUpperCase();
-  if (st.sectors.some(x => x.id !== id && x.name === name)) return alert('Já existe um setor com esse nome.');
+  if (st.sectors.some(x => x.id !== id && x.name === name)) return alert('Já existe um tipo com esse nome.');
   Object.assign(s, { name, icon: n.icon, color: n.color }); save(st); fillSectors(); refresh();
 }
 function secDel(id) {
-  if (st.items.some(i => i.sectorId === id) || st.docs.some(d => d.sectorId === id)) return alert('Mova ou exclua os itens e registros deste setor antes de excluí-lo.');
-  if (!confirm('Excluir este setor?')) return;
-  tomb(st, 'sec:' + id); delete st.budget[id];   // lembra a exclusão para o setor não voltar ao juntar backups
+  if (st.items.some(i => i.sectorId === id) || st.docs.some(d => d.sectorId === id)) return alert('Mova ou exclua os registros deste tipo antes de excluí-lo.');
+  if (!confirm('Excluir este tipo de pagamento?')) return;
+  tomb(st, 'sec:' + id); delete st.budget[id];   // lembra a exclusão para o tipo não voltar ao juntar backups
   st.sectors = st.sectors.filter(s => s.id !== id); save(st); fillSectors(''); refresh();
 }
 
 function toggle(id) { const it = st.items.find(i => i.id === id); it.done = !it.done; it.u = Date.now(); save(st); refresh(); }
 function remove(id) { if (confirm('Excluir este item?')) { tomb(st, id); st.items = st.items.filter(i => i.id !== id); fix(st); save(st); refresh(); } }
-// Enviar a lista (itens marcados ☑) pelo WhatsApp: texto pronto no aplicativo, para escolher o contato
+// Texto da lista (itens marcados ☑): enviado pelo WhatsApp ou copiado para colar em qualquer lugar
+function listText(whats) {
+  const sel = st.items.filter(i => st.list.ids.includes(i.id)).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  if (!sel.length) return '';
+  const bold = t => whats ? `*${t}*` : t, m = n => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const lines = [`🛒 ${bold('Lista de compras')} — ${new Date().toLocaleDateString('pt-BR')}`, '']; let total = 0;
+  sel.forEach(i => {
+    const q = Number(st.list.qtys[i.id]) || 1, p = Number(st.list.prices[i.id]) || 0, o = (st.list.notes[i.id] || '').trim();
+    total += p * q;
+    lines.push('• ' + [i.name + (i.brand ? ` (${i.brand})` : ''), `Qtd.: ${q}`, p ? `R$ ${m(p)}` : '', o].filter(Boolean).join(' — '));
+  });
+  if (total) lines.push('', `${bold('Total:')} R$ ${m(total)}`);
+  return lines.join('\n');
+}
 function sendList() {
-  const sel = st.items.filter(i => st.list.ids.includes(i.id));
-  if (!sel.length) return alert('Marque (☑) os produtos que vão na lista e toque em "Enviar lista".');
-  const lines = [`🛒 *Lista de compras* — ${new Date().toLocaleDateString('pt-BR')}`]; let total = 0, any = false;
-  const group = (title, its) => {
-    if (!its.length) return; lines.push('', title);
-    its.forEach(i => {
-      const q = Number(st.list.qtys[i.id]) || 1, p = Number(st.list.prices[i.id]) || 0, u = (PACKS[i.pack] && PACKS[i.pack].label) || st.list.buyUnits[i.id] || 'unidade(s)', who = st.list.stores[i.id];
-      if (p) { any = true; total += p * (q || 1); }
-      lines.push('• ' + [i.name + (i.brand ? ` (${i.brand})` : ''), q ? `${q} ${u}` : '', p ? `R$ ${p.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '', who || ''].filter(Boolean).join(' — '));
-    });
-  };
-  st.sectors.forEach(sec => group(`${sec.icon} *${sec.name}*`, sel.filter(i => i.sectorId === sec.id)));
-  group('📦 *Outros*', sel.filter(i => !st.sectors.some(s => s.id === i.sectorId)));
-  if (any) lines.push('', `*Total estimado:* R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
-  window.open('https://wa.me/?text=' + encodeURIComponent(lines.join('\n')), '_blank');
+  const t = listText(true); if (!t) return alert('Marque (☑) os produtos que vão na lista e toque em "Enviar lista".');
+  window.open('https://wa.me/?text=' + encodeURIComponent(t), '_blank');
+}
+async function copyList() {
+  const t = listText(false); if (!t) return alert('Marque (☑) os produtos que vão na lista antes de copiar.');
+  try { await navigator.clipboard.writeText(t); }
+  catch { const a = document.createElement('textarea'); a.value = t; document.body.append(a); a.select(); try { document.execCommand('copy'); } catch {} a.remove(); }
+  alert('Lista copiada. Cole onde quiser.');
 }
 $('sendBtn').onclick = sendList;
+$('copyBtn').onclick = copyList;
 
 // ---------- Busca entre setores ----------
 $('searchForm').onsubmit = e => {
@@ -438,6 +446,7 @@ function select(id) { const a = st.list.ids, i = a.indexOf(id); if (i < 0) a.pus
 function store(id, v) { st.list.stores[id] = v; save(st); }
 function price(id, v) { st.list.prices[id] = v; save(st); updateTotals(st); }
 function buyUnit(id, v) { st.list.buyUnits[id] = v; save(st); }
+function note(id, v) { st.list.notes[id] = v; save(st); }
 function qty(id, v) { st.list.qtys[id] = v; save(st); updateTotals(st); }
 $('clearList').onclick = () => { if (confirm('Limpar a lista?')) { st.list = { ids: [], prices: {}, qtys: {}, stores: {}, buyUnits: {} }; save(st); refresh(); } };
 $('saveList').onclick = () => {
@@ -481,8 +490,7 @@ $('mergeFile').onchange = async e => {
 };
 $('dirBtn').onclick = pickDir;
 $('pPack').replaceChildren(new Option('Qtd. (padrão)', ''), ...Object.entries(PACKS).map(([k, v]) => new Option(`${v.nome} (${v.abbr})`, k)));
-$('pricesBtn').onclick = () => { $('pricesBtn').textContent = togglePrices() ? '💲 Ocultar preços' : '💲 Preços'; refresh(); };
 $('secBtn').onclick = openSectors;
 $('helpBtn').onclick = () => { $('helpVer').textContent = $('ver').textContent; $('helpDlg').showModal(); };
 $('helpClose').onclick = () => $('helpDlg').close();
-$('ver').textContent = 'Versão 20 carregada';
+$('ver').textContent = 'Versão 21 carregada';

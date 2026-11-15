@@ -41,32 +41,22 @@ function renderTabs(st, view, cb) {
 function renderProducts(st, listMode, cb, view) {
   const box = document.getElementById('prodPanel'); box.replaceChildren(); box.hidden = view !== 'produto'; if (box.hidden) return;
   const idx = new Map(st.sectors.map((s, i) => [s.id, i]));
-  const items = [...st.items].sort((a, b) => ((idx.get(a.sectorId) ?? 99) - (idx.get(b.sectorId) ?? 99)) || a.name.localeCompare(b.name, 'pt-BR'));
+  const items = [...st.items].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   box.append(el('h2', '', `Produtos (${items.length})`));
   if (!items.length) return box.append(el('p', 'empty', 'Nenhum produto cadastrado. Use "Cadastrar Produto".'));
   const grid = el('div', 'pgrid');
   items.forEach(it => {
-    const sc = st.sectors.find(s => s.id === it.sectorId), S = stockState(it), card = el('div', 'pcard'), main = el('div', 'pmain');
-    if (sc) card.style.setProperty('--sc', sc.color);   // só ao passar o mouse: fundo clarinho na cor do setor
+    const card = el('div', 'pcard'), main = el('div', 'pmain'), sc = st.sectors.find(x => x.id === it.sectorId);
+    if (sc) card.style.setProperty('--sc', sc.color);   // fundo clarinho na cor ao passar o mouse (produtos antigos que ainda têm setor)
     const head = el('label', 'phead'), k = el('input'); k.type = 'checkbox'; k.checked = st.list.ids.includes(it.id); k.setAttribute('aria-label', 'Selecionar para a lista'); k.onchange = () => cb.select(it.id);
     head.append(k, el('strong', 'pname', it.name)); if (it.color) head.append(dot(it.color));
-    const field = (l, v) => { if (!v) return; const f = el('div', 'pf'); f.append(el('b', '', l), ' ', el('span', '', v)); main.append(f); };
-    field('Marca:', it.brand);
-    field((PACKS[it.pack] ? PACKS[it.pack].abbr : 'Qtd.') + ':', qtyInfo(it));   // Qtd.: / Pt.: / Cx.: / Un.: / Pct.:
+    if (it.brand) { const f = el('div', 'pf'); f.append(el('b', '', 'Marca:'), ' ', el('span', '', it.brand)); main.append(f); }
     if (it.code) { const bc = el('div', 'pbc'), svg = barcodeSvg(it.code); if (svg) bc.append(svg); bc.append(el('div', 'pcode', it.code)); main.append(bc); }   // código de barras + número
-    if (S.n !== null || it.expiry) {   // estoque (com − e +) e validade, só quando informados
-      const tags = el('div', 'tags');
-      if (S.n !== null) { const w = el('span', 'stockc tag' + (S.low ? ' bad' : '')); w.append('Estoque: ', btn('−', 'Tirar 1 do estoque', () => cb.stock(it.id, -1), 'mv'), el('span', 'nn', S.n), btn('+', 'Somar 1 ao estoque', () => cb.stock(it.id, 1), 'mv')); tags.append(w); }
-      if (it.expiry) tags.append(el('span', 'tag' + (S.expired ? ' bad' : S.soon ? ' warn' : ''), 'Validade: ' + it.expiry.split('-').reverse().join('/')));
-      main.append(tags);
-    }
-    // ícones no fim do cartão: primeiro o do setor, depois (afastados) pesquisar, editar e excluir
-    const acts = el('div', 'pacts'), si = el('span', 'psec', sc ? sc.icon : '—'), a = el('a', '', '🔍');
-    si.title = sc ? 'Setor: ' + sc.name : 'Sem setor';
+    const acts = el('div', 'pacts'), a = el('a', '', '🔍');   // pesquisar na internet com o nome entre aspas
     a.href = 'https://www.google.com/search?q=' + encodeURIComponent('"' + it.name + '"'); a.target = '_blank'; a.rel = 'noopener'; a.title = 'Pesquisar na internet';
-    acts.append(si, a, btn('✏️', 'Editar', () => cb.edit(it.id)), btn('🗑️', 'Excluir', () => cb.remove(it.id)));
+    acts.append(a, btn('✏️', 'Editar', () => cb.edit(it.id)), btn('🗑️', 'Excluir', () => cb.remove(it.id)));
     main.append(acts); card.append(head, main);
-    const th = thumb(it); if (th) { th.className = 'pimg'; card.append(th); }
+    const th = thumb(it); if (th) { th.className = 'pimg' + (th.src.startsWith('data:image/jpeg') ? ' blend' : ''); card.append(th); }   // fotos antigas (JPEG com fundo branco) se misturam ao fundo
     grid.append(card);
   });
   box.append(grid);
@@ -92,44 +82,53 @@ export function renderResults(st, terms, norm, cb) {
   });
 }
 
-// Lista de compras (itens marcados), em tabela: Produto | Quantidade (com ▲▼) | Imagem pequena. Os preços aparecem só no botão "💲 Preços".
-const LIST = { prices: false };
-export const togglePrices = () => (LIST.prices = !LIST.prices);
+// Lista de compras (itens marcados), em tabela de colunas fixas: Produto | Qtd. (▲▼) | Preço | Obs. | Imagem, com o total no fim da coluna Preço.
+// As larguras são calculadas pela própria lista (o maior nome, o maior preço) e não mudam quando você digita.
+const fmt2 = n => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function textWidth(text, font) {
+  try { const g = document.createElement('canvas').getContext('2d'); g.font = font; return g.measureText(text).width; } catch { return text.length * 8; }
+}
 export function renderList(st, cb) {
   const body = document.getElementById('listBody'); body.replaceChildren();
   document.getElementById('listDate').textContent = new Date().toLocaleDateString('pt-BR');
-  const idx = new Map(st.sectors.map((s, i) => [s.id, i]));
-  const items = st.items.filter(i => st.list.ids.includes(i.id)).sort((a, b) => ((idx.get(a.sectorId) ?? 99) - (idx.get(b.sectorId) ?? 99)) || a.name.localeCompare(b.name, 'pt-BR'));
-  if (!items.length) { document.getElementById('listTotal').textContent = ''; return body.append(el('p', 'empty', 'Marque (☑) os produtos para montar a lista.')); }
-  const pr = LIST.prices, heads = ['Produto', 'Quantidade', 'Imagem', ...(pr ? ['Preço unit. (R$)', 'Subtotal', 'Loja / Mercado'] : [])];
-  const t = el('table', 'lst'), head = el('tr'); heads.forEach(h => head.append(el('th', '', h))); t.append(head);
+  document.getElementById('listTotal').textContent = '';
+  const items = st.items.filter(i => st.list.ids.includes(i.id)).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  if (!items.length) return body.append(el('p', 'empty', 'Marque (☑) os produtos para montar a lista.'));
+  const fam = getComputedStyle(document.body).fontFamily || 'sans-serif', OBS = 28;
+  const wName = Math.min(340, Math.ceil(Math.max(...items.map(i => textWidth(i.name, `700 15px ${fam}`)), textWidth('Produto', `700 13px ${fam}`))) + 26);
+  const wPrice = Math.ceil(Math.max(...items.map(i => textWidth(fmt2((Number(st.list.prices[i.id]) || 0) || 0), `15px ${fam}`)), textWidth('9.999,99', `15px ${fam}`))) + 30;
+  const wObs = Math.ceil(textWidth('n'.repeat(OBS), `14px ${fam}`)) + 22, widths = [wName, 104, wPrice, wObs, 64];
+  const t = el('table', 'lst'), cg = el('colgroup'); widths.forEach(w => { const c = el('col'); c.style.width = w + 'px'; cg.append(c); }); t.append(cg); t.style.width = widths.reduce((a, b) => a + b, 0) + 'px';
+  const heads = ['Produto', 'Qtd.', 'Preço', 'Obs.', 'Imagem'], hr = el('tr'); heads.forEach(h => hr.append(el('th', '', h))); const th0 = el('thead'); th0.append(hr); t.append(th0);
+  const tb = el('tbody');
   items.forEach(it => {
     const tr = el('tr'), c = heads.map(h => { const td = el('td'); td.dataset.l = h; return td; });
-    c[0].append(el('strong', '', it.name)); if (it.brand) c[0].append(el('div', 'notes', it.brand));
+    c[0].append(el('strong', 'lname', it.name));
     const inp = el('input'); inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.value = Number(st.list.qtys[it.id]) || 1; inp.setAttribute('aria-label', 'Quantidade de ' + it.name);
     const set = v => { v = Math.max(1, Math.round(Number(v) || 1)); inp.value = v; cb.qty(it.id, v); };
     inp.onchange = () => set(inp.value);
     const arr = el('span', 'qarr'); arr.append(btn('▲', 'Aumentar', () => set(Number(inp.value) + 1)), btn('▼', 'Diminuir', () => set(Number(inp.value) - 1)));
-    const box = el('span', 'qbox'); box.append(inp, arr); if (PACKS[it.pack]) box.append(el('span', 'notes', PACKS[it.pack].abbr)); c[1].append(box);
-    const th = thumb(it); if (th) { th.className = 'lthumb'; c[2].append(th); }
-    if (pr) {
-      const f = (type, val, ph, label, fn, extra = {}) => { const i = el('input'); i.type = type; i.value = val; i.placeholder = ph; i.setAttribute('aria-label', label); Object.assign(i, extra); i.oninput = () => fn(i.value); return i; };
-      c[3].append(f('number', st.list.prices[it.id] || '', '0,00', 'Preço de ' + it.name, v => cb.price(it.id, v), { min: '0', step: '0.01' }));
-      c[4].className = 'sub'; c[4].dataset.id = it.id;
-      c[5].append(f('text', st.list.stores[it.id] || '', 'Loja ou mercado', 'Loja de ' + it.name, v => cb.store(it.id, v), { maxLength: 60 }));
-    }
-    c.forEach(td => tr.append(td)); t.append(tr);
+    const box = el('span', 'qbox'); box.append(inp, arr); c[1].append(box);
+    const pin = el('input'); pin.type = 'text'; pin.inputMode = 'numeric'; pin.placeholder = '0,00'; pin.setAttribute('aria-label', 'Preço de ' + it.name);
+    const p0 = Number(st.list.prices[it.id]) || 0; pin.value = p0 ? fmt2(p0) : '';
+    pin.oninput = () => { const n = Number(pin.value.replace(/\D/g, '').slice(0, 11)) / 100; pin.value = n ? fmt2(n) : ''; cb.price(it.id, n); };   // pontuação automática, sem R$
+    c[2].append(pin);
+    const oi = el('input'); oi.type = 'text'; oi.maxLength = OBS; oi.placeholder = 'Obs.'; oi.value = st.list.notes[it.id] || ''; oi.setAttribute('aria-label', 'Observação de ' + it.name); oi.oninput = () => cb.note(it.id, oi.value); c[3].append(oi);
+    const th = thumb(it); if (th) { th.className = 'lthumb'; c[4].append(th); }
+    c.forEach(td => tr.append(td)); tb.append(tr);
   });
+  t.append(tb);
+  const tf = el('tfoot'), fr = el('tr', 'ltotal'), tc = heads.map(() => el('td'));   // linha final: fundo amarelo, letra azul-marinho
+  tc[0].textContent = 'TOTAL (R$)'; tc[2].className = 'tv'; tc.forEach(td => fr.append(td)); tf.append(fr); t.append(tf);
   const wrap = el('div', 'tscroll'); wrap.append(t); body.append(wrap);
   updateTotals(st);
 }
 
-// Total estimado (só quando há preços) e subtotais da coluna de preços
+// Total da lista = soma de (quantidade x preço) de cada item; aparece no fim da coluna Preço
 export function updateTotals(st) {
-  let total = 0, any = false;
-  st.items.filter(i => st.list.ids.includes(i.id)).forEach(i => { const p = Number(st.list.prices[i.id]) || 0; if (p) any = true; total += p * (Number(st.list.qtys[i.id]) || 1); });
-  document.querySelectorAll('#listBody .sub').forEach(td => { td.textContent = money((Number(st.list.prices[td.dataset.id]) || 0) * (Number(st.list.qtys[td.dataset.id]) || 1)); });
-  document.getElementById('listTotal').textContent = any ? 'Total: ' + money(total) : '';
+  let total = 0;
+  st.items.filter(i => st.list.ids.includes(i.id)).forEach(i => { total += (Number(st.list.prices[i.id]) || 0) * (Number(st.list.qtys[i.id]) || 1); });
+  const tv = document.querySelector('#listBody .ltotal .tv'); if (tv) tv.textContent = total ? fmt2(total) : '';
 }
 
 // Listas salvas com nome e data
@@ -148,27 +147,22 @@ export function renderSaved(st, cb) {
 // Quadro de atenção: vencidos, a vencer em 30 dias e estoque baixo
 function renderAlerts(st, cb) {
   const box = document.getElementById('alerts'); if (!box) return; box.replaceChildren();
-  const exp = [], soon = [], low = [];
-  st.items.forEach(it => { const s = stockState(it); if (s.expired) exp.push(it); else if (s.soon) soon.push(it); if (s.low) low.push(it); });
   const today = new Date().toLocaleDateString('sv-SE'), in7 = new Date(Date.now() + 7 * DAY).toLocaleDateString('sv-SE'), month = today.slice(0, 7);
   const pend = st.docs.filter(d => d.type === 'conta' && d.status === 'pendente' && d.date);
   const late = pend.filter(d => d.date < today), next = pend.filter(d => d.date >= today && d.date <= in7);
-  const over = [], near = [];   // orçamento mensal por setor (só em reais)
+  const over = [], near = [];   // limite mensal por tipo de pagamento
   st.sectors.forEach(s => {
     const lim = Number((st.budget || {})[s.id]) || 0; if (!lim) return;
     const used = st.docs.filter(d => d.sectorId === s.id && (d.currency || 'BRL') === 'BRL' && (d.date || '').startsWith(month)).reduce((a, d) => a + (d.value || 0), 0), o = { s, used, lim, pct: used / lim };
     if (o.pct >= 1) over.push(o); else if (o.pct >= .8) near.push(o);
   });
-  box.hidden = !(exp.length || soon.length || low.length || late.length || next.length || over.length || near.length); if (box.hidden) return;
+  box.hidden = !(late.length || next.length || over.length || near.length); if (box.hidden) return;
   box.append(el('h2', '', '⚠️ Atenção'));
   const dd = d => d.date.split('-').reverse().slice(0, 2).join('/');
   const docLine = (t, arr) => { if (arr.length) box.append(el('p', 'notes', `${t}: ${arr.slice(0, 8).map(d => `${d.store || d.desc || 'conta'} (${dd(d)}, ${money(d.value || 0, d.currency)})`).join('; ')}${arr.length > 8 ? '…' : ''}`)); };
   docLine('🔴 Contas vencidas', late); docLine('🟠 Contas a vencer em até 7 dias', next);
   const bud = (t, arr) => arr.forEach(o => box.append(el('p', 'notes', `${t}: ${o.s.icon} ${o.s.name} — ${money(o.used)} de ${money(o.lim)} (${Math.round(o.pct * 100)}%) neste mês`)));
-  bud('🔴 Orçamento estourado', over); bud('🟠 Perto do limite', near);
-  const line = (t, arr) => { if (arr.length) box.append(el('p', 'notes', `${t}: ${arr.slice(0, 8).map(i => i.name).join(', ')}${arr.length > 8 ? '…' : ''}`)); };
-  line('Vencidos', exp); line('Vencem em até 30 dias', soon); line('Estoque baixo', low);
-  if (low.length && cb.addLow) box.append(btn('Adicionar o estoque baixo à lista de compras', 'Marca esses itens na lista', cb.addLow, 'btn'));
+  bud('🔴 Limite estourado', over); bud('🟠 Perto do limite', near);
 }
 
 // Compras (NF) e contas cadastradas, em tabela: colunas alinhadas, filtros, resumo e exportação
@@ -274,7 +268,7 @@ export function renderDocs(st, cb, view) {
   if (!shown.length) return body.append(el('p', 'empty', 'Nenhum registro neste filtro.'));
   // Colunas: Setor (ícone), Estabelecimento, CNPJ, lápis, lixeira, Valor, Data, Situação, DANFE/Comprovante
   const all = [
-    { h: 'Setor', c: 'ic', always: 1, get: d => { const x = secOf(d); return x ? x.icon : '—'; }, tip: d => { const x = secOf(d); return x ? x.name : 'Sem setor'; } },
+    { h: 'Tipo', c: 'ic', always: 1, get: d => { const x = secOf(d); return x ? x.icon : '—'; }, tip: d => { const x = secOf(d); return x ? x.name : 'Sem tipo'; } },
     { h: 'Estabelecimento', always: 1, name: 1 },
     { h: 'CNPJ', c: 'nw num', always: 1, get: d => d.cnpj ? cnpjFmt(d.cnpj) : '' },
     { h: '', c: 'ic2', always: 1, edit: 1 },
@@ -293,8 +287,6 @@ export function renderDocs(st, cb, view) {
     cols.forEach(c => {
       const td = el('td', c.c || ''); if (c.h) td.dataset.l = c.h;
       if (c.name) {
-        const k = CONTA_TIPOS[d.kind];   // conta: ícone do tipo (gás, energia...) antes do nome
-        if (d.type === 'conta' && k) { const ik = el('span', 'kind', `${k.icon}${d.kind === 'cartao' && d.card ? ' ••' + d.card : ''} `); ik.title = k.label; td.append(ik); }
         td.append(el('strong', '', d.store || d.desc || '—'));
         if (d.items && d.items.length) {   // itens da compra: recolhidos, abrem na setinha
           const det = el('details', 'items'); det.append(el('summary', '', `Itens (${d.items.length})`));

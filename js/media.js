@@ -1,3 +1,4 @@
+import { cutout } from './cutout.js';
 // Câmera (QR Code / código de barras) e imagem do produto
 const loadZX = () => window.ZXing ? Promise.resolve() : new Promise((ok, err) => {
   const s = document.createElement('script');
@@ -43,19 +44,24 @@ export async function scanCode() {
   });
 }
 
-// Qualquer foto ou print vira uma imagem de tamanho padrão (retrato 180x240): a figura inteira, centralizada, sobre fundo branco
-export function resizeImage(file, w = 180, h = 240) {
-  return new Promise((ok, err) => {
-    const img = new Image(), url = URL.createObjectURL(file);
-    img.onload = () => {
-      const c = document.createElement('canvas'); c.width = w; c.height = h;
-      const g = c.getContext('2d'), k = Math.min(w / img.width, h / img.height), dw = img.width * k, dh = img.height * k;
-      g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
-      g.imageSmoothingQuality = 'high'; g.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
-      URL.revokeObjectURL(url); ok(c.toDataURL('image/jpeg', 0.85));
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); err(new Error('imagem')); }; img.src = url;
-  });
+// Imagem do produto (foto da câmera ou arquivo): o fundo liso vira transparente, o produto é recortado e ajustado a um tamanho
+// padrão (retrato 240x320, proporção 3:4), centralizado. Guardada em WebP com transparência (PNG se o navegador não gerar WebP).
+export const IMG_W = 240, IMG_H = 320;
+export async function productImage(src, { tol = 40, keep = false } = {}) {
+  const bmp = await createImageBitmap(src);   // já respeita a rotação das fotos do celular
+  const k = Math.min(1, 700 / Math.max(bmp.width, bmp.height)), w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bmp, 0, 0, w, h);
+  let bx = 0, by = 0, bw = w, bh = h;
+  if (!keep) {
+    const id = g.getImageData(0, 0, w, h), box = cutout(id.data, w, h, tol);
+    if (box) { g.putImageData(id, 0, 0); bx = Math.max(0, box.x0 - 2); by = Math.max(0, box.y0 - 2); bw = Math.min(w - bx, box.x1 - box.x0 + 5); bh = Math.min(h - by, box.y1 - box.y0 + 5); }
+  }
+  const out = document.createElement('canvas'); out.width = IMG_W; out.height = IMG_H;
+  const o = out.getContext('2d'), m = 6, s = Math.min((IMG_W - 2 * m) / bw, (IMG_H - 2 * m) / bh, 2), dw = bw * s, dh = bh * s;
+  o.imageSmoothingQuality = 'high'; o.drawImage(c, bx, by, bw, bh, (IMG_W - dw) / 2, (IMG_H - dh) / 2, dw, dh);
+  const webp = out.toDataURL('image/webp', 0.9);
+  return webp.startsWith('data:image/webp') ? webp : out.toDataURL('image/png');
 }
 
 // Tenta ler um código de barras / QR Code dentro de uma foto (devolve o texto ou null)

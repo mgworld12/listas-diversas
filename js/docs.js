@@ -122,3 +122,16 @@ export async function fetchNFPage(url) {
   doc.querySelectorAll('td,th,tr,div,p,br,li,h1,h2,h3,label').forEach(e => e.insertAdjacentText('afterend', ' '));
   return doc.body ? doc.body.textContent : '';
 }
+
+// CNPJ com dígitos verificadores corretos
+export function validCnpj(c) {
+  c = String(c || '').replace(/\D/g, ''); if (c.length !== 14 || /^(\d)\1+$/.test(c)) return false;
+  const dv = n => { let s = 0, p = n - 7; for (let i = 0; i < n; i++) { s += +c[i] * p--; if (p < 2) p = 9; } const r = s % 11; return r < 2 ? 0 : 11 - r; };
+  return dv(12) === +c[12] && dv(13) === +c[13];
+}
+// Chave de acesso de NF-e/NFC-e (44 dígitos): UF, ano/mês, CNPJ válido e modelo 55/57/65. Um boleto também tem 44 dígitos, mas não passa nestas regras.
+export function isNFKey(key) {
+  if (!/^\d{44}$/.test(String(key || ''))) return false;
+  const uf = +key.slice(0, 2), mm = +key.slice(4, 6);
+  return uf >= 11 && uf <= 53 && mm >= 1 && mm <= 12 && ['55', '57', '65'].includes(key.slice(20, 22)) && validCnpj(key.slice(6, 20));
+}

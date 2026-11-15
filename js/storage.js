@@ -1,4 +1,5 @@
-import { DEFAULTS } from './config.js';
+import { DEFAULTS, CONTA_TIPOS } from './config.js';
+const TIPO_COR = { gas: '#ef4444', energia: '#eab308', condominio: '#6366f1', agua: '#0ea5e9', cartao: '#8b5cf6', pix: '#14b8a6', loteria: '#22c55e' };
 const KEY = 'listasSetores.v2';   // chave antiga do localStorage (só lida na migração)
 export const slug = n => n.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'setor';
 // Identificador único (não repete entre celular e computador)
@@ -11,15 +12,25 @@ export const ts = x => x.u || (Number(x.id) > 1e12 ? Number(x.id) : Date.parse(x
 // Garante a estrutura dos dados e remove restos de itens já excluídos
 export function fix(st) {
   const l = st.list = st.list || {};
-  ['prices', 'qtys', 'stores', 'buyUnits'].forEach(k => l[k] = l[k] || {});
+  ['prices', 'qtys', 'stores', 'buyUnits', 'notes'].forEach(k => l[k] = l[k] || {});
   const has = id => st.items.some(i => String(i.id) === String(id));
   l.ids = (l.ids || []).filter(has);
-  ['prices', 'qtys', 'stores', 'buyUnits'].forEach(k => Object.keys(l[k]).forEach(id => { if (!has(id)) delete l[k][id]; }));
+  ['prices', 'qtys', 'stores', 'buyUnits', 'notes'].forEach(k => Object.keys(l[k]).forEach(id => { if (!has(id)) delete l[k][id]; }));
   st.saved = st.saved || []; st.codes = st.codes || {}; st.docs = st.docs || []; st.learn = st.learn || {};
   st.deleted = st.deleted || {}; st.cnpjs = st.cnpjs || {}; st.budget = st.budget || {};
   st.meta = st.meta || {}; st.meta.device = st.meta.device || uid(); st.meta.lastExport = st.meta.lastExport || 0;
   st.saved.forEach(s => { s.id = s.id || 'l' + (Date.parse(s.date) || uid()); });
   [...st.items, ...st.docs, ...st.saved].forEach(x => { x.u = x.u || ts(x); });
+  // Tipos de pagamento: gás, energia, água... entram na mesma lista dos setores (cada um com ícone); o tipo antigo da conta vira o setor correspondente
+  const ensure = key => {
+    const t = CONTA_TIPOS[key]; if (!t) return '';
+    const id = 'tipo-' + key, mine = st.sectors.find(s => s.id === id || nz(s.name) === nz(t.label));
+    if (mine) return mine.id;
+    if (st.deleted['sec:' + id]) return '';
+    st.sectors.push({ id, name: t.label.toUpperCase(), icon: t.icon, color: TIPO_COR[key] || '#6b7280' }); return id;
+  };
+  if (!st.meta.tipos) { Object.keys(CONTA_TIPOS).forEach(ensure); st.meta.tipos = 1; }
+  st.docs.forEach(d => { if (d.kind) { const id = ensure(d.kind); if (id) { d.sectorId = id; d.u = Date.now(); } d.kind = ''; } });
   return st;
 }
 const old = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
@@ -100,9 +111,9 @@ export async function importJSON(file) {
 export const nz = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 // NF/boleto/conta de consumo: a chave; sem chave (Pix, lançamento manual): tipo + estabelecimento + data + valor + descrição
 export const docFps = d => d.key ? ['k:' + d.key]
-  : ['f|' + [d.type, d.cnpj || nz(d.store), d.date, Math.round((d.value || 0) * 100), d.currency || 'BRL', d.kind || '', d.card || '', nz(d.desc)].join('|')];
+  : ['f|' + [d.type, d.cnpj || nz(d.store), d.date, Math.round((d.value || 0) * 100), d.currency || 'BRL', d.sectorId || d.kind || '', d.card || '', nz(d.desc)].join('|')];
 // Produto: o código de barras, ou o mesmo nome + marca + quantidade + volume
-export const itemFps = i => [i.code ? 'c:' + i.code : '', 'n|' + [nz(i.name), nz(i.brand), nz([i.qty, i.unit, i.content].join(' ')).replace(/ /g, ''), nz(i.volume).replace(/ /g, '')].join('|')].filter(Boolean);
+export const itemFps = i => [i.code ? 'c:' + i.code : '', 'n|' + [nz(i.name), nz(i.brand)].join('|')].filter(Boolean);
 // Junta registros iguais: fica o de menor id (igual nos dois aparelhos), com o conteúdo mais recente; os outros viram "excluídos"
 export function collapse(list, fps, dead, n) {
   const seen = new Map(), out = [];

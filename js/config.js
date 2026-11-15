@@ -12,7 +12,7 @@ export const DEFAULTS = {
     { name: 'Roxo', hex: '#9333ea' }
   ]
 };
-export const ICONS = ['💊', '🛒', '📎', '🏠', '🔧', '👕', '🍎', '🥩', '🧴', '📚', '🐾', '🎁', '🚗', '💻', '🌱', '📁'];
+export const ICONS = ['🛒', '💊', '📎', '🏠', '🍎', '🥩', '🧴', '🔧', '👕', '📚', '🐾', '🎁', '🚗', '💻', '🌱', '📁', '🔥', '⚡', '🏢', '💧', '💳', '💠', '🍀', '⛽', '🏥', '🍽️', '📱', '✈️', '🎓', '🧾', '🚌', '🎬', '🧹', '👶'];
 // Palavras que sugerem automaticamente um setor (chave = id do setor)
 export const KEYWORDS = {
   farmacia: ['remedio', 'remédio', 'ibuprofeno', 'dipirona', 'comprimido'],
